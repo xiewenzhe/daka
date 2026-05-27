@@ -1,0 +1,57 @@
+
+> medicine-checkin-pwa@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+
+ ✓ Starting...
+ ✓ Ready in 2.4s
+ ○ Compiling /login ...
+ ✓ Compiled /login in 3.2s (557 modules)
+ GET /login 200 in 3419ms
+ GET /login 200 in 55ms
+ ✓ Compiled /app in 494ms (569 modules)
+ ✓ Compiled /admin in 435ms (607 modules)
+ ✓ Compiled in 545ms (621 modules)
+ ✓ Compiled in 529ms (621 modules)
+ ✓ Compiled in 637ms (621 modules)
+ ✓ Compiled in 276ms (621 modules)
+ ✓ Compiled in 413ms (621 modules)
+ ✓ Compiled in 243ms (621 modules)
+ GET /login 200 in 118ms
+ ⚠ Found a change in next.config.mjs. Restarting the server to apply the changes...
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+
+ ✓ Starting...
+ ✓ Ready in 3s
+ ○ Compiling /login ...
+ ✓ Compiled /login in 3.2s (557 modules)
+ GET /login 200 in 3467ms
+ ✓ Compiled in 1149ms (287 modules)
+ ✓ Compiled in 1151ms (287 modules)
+ ✓ Compiled in 220ms (287 modules)
+ ✓ Compiled in 132ms (287 modules)
+ ✓ Compiled in 980ms (287 modules)
+ ✓ Compiled in 161ms (287 modules)
+ ✓ Compiled in 203ms (287 modules)
+ ✓ Compiled in 144ms (287 modules)
+ ✓ Compiled in 990ms (287 modules)
+ ○ Compiling /settings ...
+ ✓ Compiled /settings in 794ms (270 modules)
+ ✓ Compiled in 376ms (311 modules)
+ GET /settings 200 in 1382ms
+ GET /login 200 in 1465ms
+ ✓ Compiled in 272ms (311 modules)
+ ○ Compiling /login ...
+ ✓ Compiled /login in 861ms (270 modules)
+ GET /login 200 in 1048ms
+ ✓ Compiled in 1137ms (311 modules)
+ ✓ Compiled in 145ms (311 modules)
+ ✓ Compiled in 165ms (311 modules)
+ ✓ Compiled in 148ms (311 modules)
+ ✓ Compiled in 190ms (311 modules)
+ ✓ Compiled in 148ms (311 modules)
+ ✓ Compiled in 143ms (311 modules)
+ ✓ Compiled in 148ms (311 modules)
