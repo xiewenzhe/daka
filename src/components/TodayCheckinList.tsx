@@ -9,6 +9,11 @@ type TodayCheckinListProps = {
   submittingId: string | null;
   onCheckin: (scheduleId: string) => void;
   onSubmitMissedReason: (scheduleId: string, reason: string) => void;
+  onMakeupCheckin: (
+    scheduleId: string,
+    actualTakenAt: string,
+    note: string
+  ) => void;
 };
 
 export function TodayCheckinList({
@@ -16,7 +21,8 @@ export function TodayCheckinList({
   checkinDate,
   submittingId,
   onCheckin,
-  onSubmitMissedReason
+  onSubmitMissedReason,
+  onMakeupCheckin
 }: TodayCheckinListProps) {
   if (items.length === 0) {
     return (
@@ -37,6 +43,7 @@ export function TodayCheckinList({
           isSubmitting={submittingId === item.id}
           onCheckin={onCheckin}
           onSubmitMissedReason={onSubmitMissedReason}
+          onMakeupCheckin={onMakeupCheckin}
         />
       ))}
     </div>

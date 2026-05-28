@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AdminHistorySummary } from "@/components/AdminHistorySummary";
+import { AdminNotifications } from "@/components/AdminNotifications";
 import { AdminTodayStatus } from "@/components/AdminTodayStatus";
+import { WeeklyStatsSummary } from "@/components/WeeklyStatsSummary";
 import {
   formatChineseDate,
   getLocalDateString,
@@ -13,16 +14,19 @@ import {
 import { getCurrentProfile, signOutCurrentUser } from "@/lib/auth";
 import {
   demoPatientProfile,
+  getDemoAdminNotifications,
   getDemoCheckins,
   getDemoSchedules
 } from "@/lib/demoData";
+import { buildWeeklyStats } from "@/lib/stats";
 import { hasSupabaseConfig, supabase } from "@/lib/supabaseClient";
 import type {
+  AdminNotification,
   Checkin,
-  DailyCheckinSummary,
   MedicineSchedule,
   Profile,
-  ScheduleWithCheckin
+  ScheduleWithCheckin,
+  WeeklyStats
 } from "@/lib/types";
 
 const scheduleOrder = ["morning", "noon", "evening"];
@@ -35,15 +39,10 @@ export default function AdminPage() {
   const router = useRouter();
   const today = useMemo(() => getLocalDateString(), []);
   const last7Days = useMemo(() => getRecentLocalDateStrings(7), []);
-  const last30Days = useMemo(() => getRecentLocalDateStrings(30), []);
   const [patient, setPatient] = useState<Profile | null>(null);
   const [todayItems, setTodayItems] = useState<ScheduleWithCheckin[]>([]);
-  const [sevenDaySummaries, setSevenDaySummaries] = useState<DailyCheckinSummary[]>(
-    []
-  );
-  const [thirtyDayRate, setThirtyDayRate] = useState(0);
-  const [totalThirtyDayCheckins, setTotalThirtyDayCheckins] = useState(0);
-  const [totalThirtyDaySlots, setTotalThirtyDaySlots] = useState(0);
+  const [weeklyStats, setWeeklyStats] = useState<WeeklyStats | null>(null);
+  const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
 
@@ -70,12 +69,17 @@ export default function AdminPage() {
 
     if (!hasSupabaseConfig) {
       const orderedSchedules = sortSchedules(getDemoSchedules(demoPatientProfile.id));
+      const statsStartDate =
+        demoPatientProfile.created_at.slice(0, 10) > last7Days[0]
+          ? demoPatientProfile.created_at.slice(0, 10)
+          : last7Days[0];
       const checkins = getDemoCheckins(
         demoPatientProfile.id,
-        last30Days[0],
+        statsStartDate,
         today
       );
-      buildDashboard(demoPatientProfile, orderedSchedules, checkins);
+      buildDashboard(demoPatientProfile, orderedSchedules, checkins, statsStartDate);
+      setNotifications(getDemoAdminNotifications().slice(0, 10));
       setIsLoading(false);
       return;
     }
@@ -96,7 +100,7 @@ export default function AdminPage() {
     const [
       { data: patientProfile, error: patientError },
       { data: schedules, error: schedulesError },
-      { data: checkins, error: checkinsError }
+      { data: notificationsData, error: notificationsError }
     ] = await Promise.all([
       supabase
         .from("profiles")
@@ -111,33 +115,59 @@ export default function AdminPage() {
         .order("reminder_time", { ascending: true })
         .returns<MedicineSchedule[]>(),
       supabase
-        .from("checkins")
+        .from("admin_notifications")
         .select("*")
-        .eq("user_id", link.patient_id)
-        .gte("checkin_date", last30Days[0])
-        .lte("checkin_date", today)
-        .returns<Checkin[]>()
+        .eq("admin_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(10)
+        .returns<AdminNotification[]>()
     ]);
 
-    if (patientError || schedulesError || checkinsError) {
+    if (patientError || schedulesError || notificationsError || !patientProfile) {
       setMessage(
         patientError?.message ??
           schedulesError?.message ??
-          checkinsError?.message ??
+          notificationsError?.message ??
           "读取管理员数据失败"
       );
       setIsLoading(false);
       return;
     }
 
-    buildDashboard(patientProfile, sortSchedules(schedules ?? []), checkins ?? []);
+    const statsStartDate =
+      patientProfile.created_at.slice(0, 10) > last7Days[0]
+        ? patientProfile.created_at.slice(0, 10)
+        : last7Days[0];
+
+    const { data: checkins, error: checkinsError } = await supabase
+      .from("checkins")
+      .select("*")
+      .eq("user_id", link.patient_id)
+      .gte("checkin_date", statsStartDate)
+      .lte("checkin_date", today)
+      .returns<Checkin[]>();
+
+    if (checkinsError) {
+      setMessage(checkinsError.message);
+      setIsLoading(false);
+      return;
+    }
+
+    buildDashboard(
+      patientProfile,
+      sortSchedules(schedules ?? []),
+      checkins ?? [],
+      statsStartDate
+    );
+    setNotifications(notificationsData ?? []);
     setIsLoading(false);
   }
 
   function buildDashboard(
     targetPatient: Profile,
     orderedSchedules: MedicineSchedule[],
-    checkins: Checkin[]
+    checkins: Checkin[],
+    statsStartDate: string
   ) {
     const checkinsByScheduleToday = new Map(
       checkins
@@ -153,34 +183,10 @@ export default function AdminPage() {
       }))
     );
 
-    const checkinsByDate = checkins.reduce<Record<string, number>>(
-      (result, checkin) => {
-        if (checkin.status === "checked") {
-          result[checkin.checkin_date] = (result[checkin.checkin_date] ?? 0) + 1;
-        }
-        return result;
-      },
-      {}
-    );
-
-    const totalCount = orderedSchedules.length || 3;
-    setSevenDaySummaries(
-      last7Days.map((date) => ({
-        date,
-        checkedCount: checkinsByDate[date] ?? 0,
-        totalCount
-      }))
-    );
-
-    const thirtyDayCheckins = last30Days.reduce(
-      (sum, date) => sum + (checkinsByDate[date] ?? 0),
-      0
-    );
-    const thirtyDaySlots = totalCount * last30Days.length;
-    setTotalThirtyDayCheckins(thirtyDayCheckins);
-    setTotalThirtyDaySlots(thirtyDaySlots);
-    setThirtyDayRate(
-      thirtyDaySlots > 0 ? Math.round((thirtyDayCheckins / thirtyDaySlots) * 100) : 0
+    setWeeklyStats(
+      buildWeeklyStats(orderedSchedules, checkins, {
+        startDate: statsStartDate
+      })
     );
   }
 
@@ -236,14 +242,11 @@ export default function AdminPage() {
           <>
             <AdminTodayStatus
               patientName={patient.display_name ?? "朋友"}
+              checkinDate={today}
               items={todayItems}
             />
-            <AdminHistorySummary
-              sevenDaySummaries={sevenDaySummaries}
-              thirtyDayRate={thirtyDayRate}
-              totalThirtyDayCheckins={totalThirtyDayCheckins}
-              totalThirtyDaySlots={totalThirtyDaySlots}
-            />
+            <AdminNotifications notifications={notifications} />
+            {weeklyStats ? <WeeklyStatsSummary stats={weeklyStats} /> : null}
           </>
         ) : null}
       </div>

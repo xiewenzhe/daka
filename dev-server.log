@@ -55,3 +55,11 @@
  ✓ Compiled in 148ms (311 modules)
  ✓ Compiled in 143ms (311 modules)
  ✓ Compiled in 148ms (311 modules)
+ ✓ Compiled in 924ms (311 modules)
+ ○ Compiling /login ...
+ ✓ Compiled /login in 780ms (270 modules)
+ GET /login 200 in 956ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 730ms (584 modules)
+ GET /login 404 in 897ms
+[?25h

@@ -66,6 +66,18 @@ cp .env.example .env.production
 - 用户只能读取自己的 profile；admin 可以读取绑定 patient 的 profile
 - notification_tokens 第一版只允许用户管理自己的 token
 
+如果你已经部署过旧版本，需要额外执行最新 migration：
+
+```sql
+-- 复制并执行 supabase/migrations/20260528_add_makeup_and_admin_notifications.sql
+```
+
+这个 migration 会新增：
+
+- `checkins.checkin_type`：区分 `normal` 正常打卡和 `makeup` 补打卡
+- `checkins.actual_taken_at`：补打卡填写的实际喝药时间
+- `admin_notifications`：管理员站内通知表
+
 ## 默认演示账号
 
 如果你还没有配置 `.env.local`，项目会自动进入本地演示模式，可以直接登录：
@@ -398,9 +410,21 @@ Android：
 - 早上 09:00 只能在 08:00 - 10:00 打卡
 - 中午 15:00 只能在 14:00 - 16:00 打卡
 - 晚上 21:00 只能在 20:00 - 22:00 打卡
-- 未到时间时按钮不可点
-- 超过时间后不能再打卡，需要填写原因
-- 管理员页面会把超时原因显示为“漏打卡”
+- 未到时间时显示“未到时间”
+- 到打卡窗口内显示“可打卡”
+- 超过时间后自动显示“已超时未打卡”
+- 超过时间后可以补打卡，需要填写实际喝药时间和备注
+- 管理员页面会区分“正常打卡”和“补打卡”
+- 最近 7 天统计会从“嘉嘉开始使用日期”和最近 7 天之间较晚的日期开始算，避免系统启用前的日期被统计为漏打卡
+
+朋友端还包含：
+
+- 正常打卡成功后弹出“嘉嘉真棒！要开开心心哦~”
+- 补打卡成功后弹出“嘉嘉公主虽迟但到！嘿嘿~”
+- 本月打卡日历，每天用三段圆形展示早/中/晚状态
+  - 绿色：该时间段已打卡
+  - 红色：该时间段已超时未打卡
+  - 灰色：未到时间或系统启用前
 
 ## 测试 admin 页面
 
@@ -408,8 +432,8 @@ Android：
 2. 使用 `admin` 和约定密码登录
 3. 登录后应跳转到 `/admin`
 4. 页面会显示绑定 patient 今天三次打卡状态
-5. 页面会显示最近 7 天每天完成数
-6. 页面会显示最近 30 天完成率
+5. 页面会显示站内通知
+6. 页面会显示最近 7 天完成次数、漏打卡次数、完成率、连续完成天数和每天完成情况
 
 ## 设置页面
 
@@ -422,6 +446,40 @@ Android：
 - 晚上 21:00
 
 保存后会更新 `medicine_schedules.reminder_time`。本地演示模式会保存到浏览器 `localStorage`。
+
+## 更新部署
+
+如果服务器上已经部署过旧版本，更新代码后执行：
+
+```bash
+cd /opt/daka
+git pull
+npm install
+
+set -a
+source .env.production
+set +a
+
+npm run build
+pm2 restart daka --update-env
+```
+
+然后到 Supabase SQL Editor 执行：
+
+```sql
+-- 复制并执行 supabase/migrations/20260528_add_makeup_and_admin_notifications.sql
+```
+
+如果你已经执行过这个 migration，本次新增弹窗和本月日历不需要再执行新的 SQL，只更新代码并重新构建即可。
+
+如果你用 standalone 方式启动，并且发现页面没有样式，重新复制静态资源：
+
+```bash
+cp -r public .next/standalone/
+mkdir -p .next/standalone/.next
+cp -r .next/static .next/standalone/.next/
+pm2 restart daka --update-env
+```
 
 ## PWA
 

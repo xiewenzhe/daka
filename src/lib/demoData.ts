@@ -3,6 +3,7 @@ import type { Checkin, MedicineSchedule, Profile } from "@/lib/types";
 const DEMO_SESSION_KEY = "daka_demo_account";
 const DEMO_CHECKINS_KEY = "daka_demo_checkins";
 const DEMO_SCHEDULES_KEY = "daka_demo_schedules";
+const DEMO_NOTIFICATIONS_KEY = "daka_demo_admin_notifications";
 const DEMO_PASSWORD = "526120";
 
 const defaultScheduleSeeds = [
@@ -30,14 +31,14 @@ export const demoPatientProfile: Profile = {
   id: "demo-patient-jiajia",
   display_name: "嘉嘉",
   role: "patient",
-  created_at: "2026-01-01T00:00:00.000Z"
+  created_at: "2026-05-27T00:00:00.000Z"
 };
 
 export const demoAdminProfile: Profile = {
   id: "demo-admin",
   display_name: "管理员",
   role: "admin",
-  created_at: "2026-01-01T00:00:00.000Z"
+  created_at: "2026-05-27T00:00:00.000Z"
 };
 
 export function getDemoSchedules(userId = demoPatientProfile.id): MedicineSchedule[] {
@@ -111,6 +112,19 @@ export function getDemoCheckins(userId: string, dateFrom?: string, dateTo?: stri
   });
 }
 
+export function clearDemoCheckinsForDate(userId: string, checkinDate: string) {
+  const nextCheckins = readDemoCheckins().filter(
+    (checkin) =>
+      !(checkin.user_id === userId && checkin.checkin_date === checkinDate)
+  );
+  const nextNotifications = getDemoAdminNotifications().filter(
+    (notification) => notification.patient_id !== userId
+  );
+
+  writeDemoCheckins(nextCheckins);
+  localStorage.setItem(DEMO_NOTIFICATIONS_KEY, JSON.stringify(nextNotifications));
+}
+
 export function createDemoCheckin(
   userId: string,
   scheduleId: string,
@@ -134,9 +148,48 @@ export function createDemoCheckin(
     user_id: userId,
     schedule_id: scheduleId,
     checkin_date: checkinDate,
+    checkin_type: "normal",
+    actual_taken_at: null,
     checked_at: now,
     status: "checked",
     note: null,
+    created_at: now
+  };
+
+  writeDemoCheckins([...checkins, next]);
+  return { data: next, error: null };
+}
+
+export function createDemoMakeupCheckin(
+  userId: string,
+  scheduleId: string,
+  checkinDate: string,
+  actualTakenAt: string,
+  note: string
+) {
+  const checkins = readDemoCheckins();
+  const existing = checkins.find(
+    (checkin) =>
+      checkin.user_id === userId &&
+      checkin.schedule_id === scheduleId &&
+      checkin.checkin_date === checkinDate
+  );
+
+  if (existing) {
+    return { data: null, error: "今天这个时间段已经记录过了。" };
+  }
+
+  const now = new Date().toISOString();
+  const next: Checkin = {
+    id: `demo-makeup-${scheduleId}-${checkinDate}`,
+    user_id: userId,
+    schedule_id: scheduleId,
+    checkin_date: checkinDate,
+    status: "checked",
+    checkin_type: "makeup",
+    actual_taken_at: actualTakenAt,
+    checked_at: now,
+    note,
     created_at: now
   };
 
@@ -169,6 +222,8 @@ export function createDemoMissedReason(
     schedule_id: scheduleId,
     checkin_date: checkinDate,
     status: "missed",
+    checkin_type: "normal",
+    actual_taken_at: null,
     checked_at: now,
     note: reason,
     created_at: now
@@ -176,6 +231,55 @@ export function createDemoMissedReason(
 
   writeDemoCheckins([...checkins, next]);
   return { data: next, error: null };
+}
+
+export function createDemoAdminNotification(
+  checkin: Checkin,
+  scheduleName: string
+) {
+  const notifications = getDemoAdminNotifications();
+  const clock = new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(checkin.actual_taken_at ?? checkin.checked_at));
+  const typeText = checkin.checkin_type === "makeup" ? "补打卡" : "打卡";
+  const next = {
+    id: `demo-notification-${checkin.id}`,
+    admin_id: demoAdminProfile.id,
+    patient_id: demoPatientProfile.id,
+    checkin_id: checkin.id,
+    message: `嘉嘉已完成${scheduleName}${typeText}，时间 ${clock}`,
+    read_at: null,
+    created_at: new Date().toISOString()
+  };
+
+  localStorage.setItem(
+    DEMO_NOTIFICATIONS_KEY,
+    JSON.stringify([next, ...notifications])
+  );
+}
+
+export function getDemoAdminNotifications() {
+  const raw = localStorage.getItem(DEMO_NOTIFICATIONS_KEY);
+
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    return JSON.parse(raw) as Array<{
+      id: string;
+      admin_id: string;
+      patient_id: string;
+      checkin_id: string | null;
+      message: string;
+      read_at: string | null;
+      created_at: string;
+    }>;
+  } catch {
+    return [];
+  }
 }
 
 export function updateDemoScheduleTime(scheduleId: string, reminderTime: string) {
@@ -237,7 +341,9 @@ function readDemoCheckins(): Checkin[] {
   try {
     return (JSON.parse(raw) as Checkin[]).map((checkin) => ({
       ...checkin,
-      status: checkin.status ?? "checked"
+      status: checkin.status ?? "checked",
+      checkin_type: checkin.checkin_type ?? "normal",
+      actual_taken_at: checkin.actual_taken_at ?? null
     }));
   } catch {
     return [];
@@ -276,6 +382,8 @@ function seedDemoHistory() {
         schedule_id: schedule.id,
         checkin_date: dateString,
         status: "checked",
+        checkin_type: "normal",
+        actual_taken_at: null,
         checked_at: checkedAt.toISOString(),
         note: null,
         created_at: checkedAt.toISOString()

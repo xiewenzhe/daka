@@ -1,14 +1,19 @@
 "use client";
 
-import { formatDateTime, formatTime } from "@/lib/date";
+import { formatDateTime, formatTime, getScheduleRuntimeStatus } from "@/lib/date";
 import type { ScheduleWithCheckin } from "@/lib/types";
 
 type AdminTodayStatusProps = {
   patientName: string;
+  checkinDate: string;
   items: ScheduleWithCheckin[];
 };
 
-export function AdminTodayStatus({ patientName, items }: AdminTodayStatusProps) {
+export function AdminTodayStatus({
+  patientName,
+  checkinDate,
+  items
+}: AdminTodayStatusProps) {
   const checkedCount = items.filter(
     (item) => item.checkin?.status === "checked"
   ).length;
@@ -27,8 +32,14 @@ export function AdminTodayStatus({ patientName, items }: AdminTodayStatusProps) 
 
       <div className="mt-4 space-y-3">
         {items.map((item) => {
-          const isDone = item.checkin?.status === "checked";
-          const isMissed = item.checkin?.status === "missed";
+          const runtimeStatus = getScheduleRuntimeStatus(
+            checkinDate,
+            item.reminder_time,
+            item.checkin
+          );
+          const isDone = runtimeStatus === "checked" || runtimeStatus === "makeup";
+          const isMissed = runtimeStatus === "missed";
+          const isMakeup = item.checkin?.checkin_type === "makeup";
 
           return (
             <div
@@ -51,14 +62,22 @@ export function AdminTodayStatus({ patientName, items }: AdminTodayStatusProps) 
                         : "text-sm font-bold text-amber-700"
                   }
                 >
-                  {isDone ? "已打卡" : isMissed ? "漏打卡" : "未打卡"}
+                  {isDone
+                    ? isMakeup
+                      ? "补打卡"
+                      : "正常打卡"
+                    : isMissed
+                      ? "已超时未打卡"
+                      : "未到时间"}
                 </p>
                 {isDone && item.checkin ? (
                   <p className="mt-1 text-sm text-slate-500">
-                    {formatDateTime(item.checkin.checked_at)}
+                    {formatDateTime(
+                      item.checkin.actual_taken_at ?? item.checkin.checked_at
+                    )}
                   </p>
                 ) : null}
-                {isMissed && item.checkin?.note ? (
+                {item.checkin?.note ? (
                   <p className="mt-1 max-w-36 text-sm leading-5 text-slate-500">
                     {item.checkin.note}
                   </p>
