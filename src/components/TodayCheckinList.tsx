@@ -7,12 +7,18 @@ type TodayCheckinListProps = {
   items: ScheduleWithCheckin[];
   checkinDate: string;
   submittingId: string | null;
-  onCheckin: (scheduleId: string) => void;
+  onCheckin: (
+    scheduleId: string,
+    mood?: string | null,
+    photoFile?: File | null
+  ) => void;
   onSubmitMissedReason: (scheduleId: string, reason: string) => void;
   onMakeupCheckin: (
     scheduleId: string,
     actualTakenAt: string,
-    note: string
+    note: string,
+    mood?: string | null,
+    photoFile?: File | null
   ) => void;
 };
 
@@ -42,6 +48,7 @@ export function TodayCheckinList({
           checkinDate={checkinDate}
           isSubmitting={submittingId === item.id}
           onCheckin={onCheckin}
+          onCheckinWithMood={onCheckin}
           onSubmitMissedReason={onSubmitMissedReason}
           onMakeupCheckin={onMakeupCheckin}
         />

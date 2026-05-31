@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { formatDateTime, formatTime, getScheduleRuntimeStatus } from "@/lib/date";
 import type { ScheduleWithCheckin } from "@/lib/types";
 
@@ -51,6 +52,11 @@ export function AdminTodayStatus({
                 <p className="mt-1 text-sm text-slate-500">
                   计划 {formatTime(item.reminder_time)}
                 </p>
+                {item.medicine_plan ? (
+                  <p className="mt-1 max-w-36 text-sm leading-5 text-slate-500">
+                    {item.medicine_plan}
+                  </p>
+                ) : null}
               </div>
               <div className="text-right">
                 <p
@@ -81,6 +87,21 @@ export function AdminTodayStatus({
                   <p className="mt-1 max-w-36 text-sm leading-5 text-slate-500">
                     {item.checkin.note}
                   </p>
+                ) : null}
+                {item.checkin?.mood ? (
+                  <p className="mt-1 text-sm text-slate-500">
+                    {item.checkin.mood}
+                  </p>
+                ) : null}
+                {item.checkin?.photo_url ? (
+                  <Image
+                    src={item.checkin.photo_url}
+                    alt="打卡照片"
+                    width={160}
+                    height={90}
+                    unoptimized
+                    className="mt-2 aspect-video w-32 rounded-lg object-cover"
+                  />
                 ) : null}
               </div>
             </div>

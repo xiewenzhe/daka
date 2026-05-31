@@ -57,6 +57,7 @@ cp .env.example .env.production
 - `care_links`
 - `medicine_schedules`
 - `checkins`
+- `feedbacks`
 - `notification_tokens`
 
 并启用 Row Level Security。当前策略支持：
@@ -64,6 +65,7 @@ cp .env.example .env.production
 - patient 只能读写自己的 schedules 和 checkins
 - admin 可以读取 care_links 绑定 patient 的 schedules 和 checkins
 - 用户只能读取自己的 profile；admin 可以读取绑定 patient 的 profile
+- patient 可以给绑定的 admin 提交反馈建议；admin 可以查看自己的反馈
 - notification_tokens 第一版只允许用户管理自己的 token
 
 如果你已经部署过旧版本，需要额外执行最新 migration：
@@ -77,6 +79,36 @@ cp .env.example .env.production
 - `checkins.checkin_type`：区分 `normal` 正常打卡和 `makeup` 补打卡
 - `checkins.actual_taken_at`：补打卡填写的实际喝药时间
 - `admin_notifications`：管理员站内通知表
+
+如果你需要启用“朋友端反馈建议”，还需要执行：
+
+```sql
+-- 复制并执行 supabase/migrations/20260531_add_feedbacks.sql
+```
+
+这个 migration 会新增 `feedbacks` 表，朋友可以给已绑定管理员提交建议，管理员可以在 `/admin` 查看。
+
+如果你需要启用“喝药安排、心情、图片、暂停模式、管理员分析和鼓励语管理”，还需要执行：
+
+```sql
+-- 复制并执行 supabase/migrations/20260531_add_plan_mood_encouragement_pause.sql
+```
+
+这个 migration 会新增：
+
+- `medicine_schedules.medicine_plan`：朋友端可编辑早/中/晚喝药安排
+- `checkins.mood`、`checkins.photo_url`：记录心情和可选图片
+- `encouragement_messages`：管理员自定义鼓励语
+- `pause_days`：今日暂停，不计入漏打卡
+- `checkin-photos` Storage bucket：保存打卡图片
+
+如果是已经部署过的老数据库，还可以执行：
+
+```sql
+-- 复制并执行 supabase/migrations/20260531_seed_default_encouragement_messages.sql
+```
+
+这样最开始那批鼓励语也会变成可编辑、可禁用、可删除的数据。
 
 ## 默认演示账号
 
@@ -421,6 +453,11 @@ Android：
 
 - 正常打卡成功后弹出“嘉嘉真棒！要开开心心哦~”
 - 补打卡成功后弹出“嘉嘉公主虽迟但到！嘿嘿~”
+- 用户端按功能拆成多个页面，可以通过导航栏切换：
+  - `/app`：今日打卡
+  - `/app/stats`：最近 7 天统计、成就徽章、本月日历
+  - `/app/plan`：喝药安排、今日暂停
+  - `/app/feedback`：给管理员提交建议
 - 本月打卡日历，每天用三段圆形展示早/中/晚状态
   - 绿色：该时间段已打卡
   - 红色：该时间段已超时未打卡
@@ -471,6 +508,30 @@ pm2 restart daka --update-env
 ```
 
 如果你已经执行过这个 migration，本次新增弹窗和本月日历不需要再执行新的 SQL，只更新代码并重新构建即可。
+
+如果你需要启用“补打卡必须填写原因”的数据库兜底校验，还需要执行：
+
+```sql
+-- 复制并执行 supabase/migrations/20260531_require_makeup_note.sql
+```
+
+如果你要启用“朋友端反馈建议”，还需要执行：
+
+```sql
+-- 复制并执行 supabase/migrations/20260531_add_feedbacks.sql
+```
+
+如果你要启用“喝药安排、心情、图片、暂停模式、管理员分析和鼓励语管理”，还需要执行：
+
+```sql
+-- 复制并执行 supabase/migrations/20260531_add_plan_mood_encouragement_pause.sql
+```
+
+如果你已经有老数据，并希望把最开始那批默认鼓励语也放进管理员端统一增删改，还需要执行：
+
+```sql
+-- 复制并执行 supabase/migrations/20260531_seed_default_encouragement_messages.sql
+```
 
 如果你用 standalone 方式启动，并且发现页面没有样式，重新复制静态资源：
 

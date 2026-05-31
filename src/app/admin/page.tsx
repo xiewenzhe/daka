@@ -3,9 +3,14 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AdminAnalytics } from "@/components/AdminAnalytics";
+import { AdminFeedbacks } from "@/components/AdminFeedbacks";
 import { AdminNotifications } from "@/components/AdminNotifications";
 import { AdminTodayStatus } from "@/components/AdminTodayStatus";
+import { EncouragementManager } from "@/components/EncouragementManager";
 import { WeeklyStatsSummary } from "@/components/WeeklyStatsSummary";
+import { buildAdminAnalysis } from "@/lib/analytics";
+import type { AdminAnalysis } from "@/lib/analytics";
 import {
   formatChineseDate,
   getLocalDateString,
@@ -13,16 +18,25 @@ import {
 } from "@/lib/date";
 import { getCurrentProfile, signOutCurrentUser } from "@/lib/auth";
 import {
+  createDemoEncouragementMessage,
+  deleteDemoEncouragementMessage,
   demoPatientProfile,
   getDemoAdminNotifications,
   getDemoCheckins,
-  getDemoSchedules
+  getDemoEncouragementMessages,
+  getDemoFeedbacks,
+  getDemoPauseDays,
+  getDemoSchedules,
+  updateDemoEncouragementMessage
 } from "@/lib/demoData";
 import { buildWeeklyStats } from "@/lib/stats";
 import { hasSupabaseConfig, supabase } from "@/lib/supabaseClient";
 import type {
   AdminNotification,
   Checkin,
+  EncouragementMessage,
+  EncouragementType,
+  Feedback,
   MedicineSchedule,
   Profile,
   ScheduleWithCheckin,
@@ -39,10 +53,18 @@ export default function AdminPage() {
   const router = useRouter();
   const today = useMemo(() => getLocalDateString(), []);
   const last7Days = useMemo(() => getRecentLocalDateStrings(7), []);
+  const last30Days = useMemo(() => getRecentLocalDateStrings(30), []);
   const [patient, setPatient] = useState<Profile | null>(null);
   const [todayItems, setTodayItems] = useState<ScheduleWithCheckin[]>([]);
   const [weeklyStats, setWeeklyStats] = useState<WeeklyStats | null>(null);
+  const [analysis, setAnalysis] = useState<AdminAnalysis | null>(null);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
+  const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
+  const [encouragements, setEncouragements] = useState<EncouragementMessage[]>([]);
+  const [isSavingEncouragement, setIsSavingEncouragement] = useState(false);
+  const [activeTab, setActiveTab] = useState<
+    "today" | "messages" | "analysis" | "encouragement"
+  >("today");
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
 
@@ -73,13 +95,36 @@ export default function AdminPage() {
         demoPatientProfile.created_at.slice(0, 10) > last7Days[0]
           ? demoPatientProfile.created_at.slice(0, 10)
           : last7Days[0];
+      const analysisStartDate =
+        demoPatientProfile.created_at.slice(0, 10) > last30Days[0]
+          ? demoPatientProfile.created_at.slice(0, 10)
+          : last30Days[0];
       const checkins = getDemoCheckins(
         demoPatientProfile.id,
-        statsStartDate,
+        analysisStartDate,
         today
       );
-      buildDashboard(demoPatientProfile, orderedSchedules, checkins, statsStartDate);
+      const pauseDays = getDemoPauseDays(
+        demoPatientProfile.id,
+        analysisStartDate,
+        today
+      );
+      buildDashboard(
+        demoPatientProfile,
+        orderedSchedules,
+        checkins,
+        statsStartDate,
+        pauseDays.map((pause) => pause.pause_date)
+      );
+      setAnalysis(
+        buildAdminAnalysis(orderedSchedules, checkins, {
+          startDate: analysisStartDate,
+          pauseDates: pauseDays.map((pause) => pause.pause_date)
+        })
+      );
       setNotifications(getDemoAdminNotifications().slice(0, 10));
+      setFeedbacks(getDemoFeedbacks().slice(0, 10));
+      setEncouragements(getDemoEncouragementMessages(demoPatientProfile.id));
       setIsLoading(false);
       return;
     }
@@ -100,7 +145,9 @@ export default function AdminPage() {
     const [
       { data: patientProfile, error: patientError },
       { data: schedules, error: schedulesError },
-      { data: notificationsData, error: notificationsError }
+      { data: notificationsData, error: notificationsError },
+      { data: feedbacksData, error: feedbacksError },
+      { data: encouragementsData, error: encouragementsError }
     ] = await Promise.all([
       supabase
         .from("profiles")
@@ -120,14 +167,36 @@ export default function AdminPage() {
         .eq("admin_id", user.id)
         .order("created_at", { ascending: false })
         .limit(10)
-        .returns<AdminNotification[]>()
+        .returns<AdminNotification[]>(),
+      supabase
+        .from("feedbacks")
+        .select("*")
+        .eq("admin_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(10)
+        .returns<Feedback[]>(),
+      supabase
+        .from("encouragement_messages")
+        .select("*")
+        .eq("patient_id", link.patient_id)
+        .order("created_at", { ascending: false })
+        .returns<EncouragementMessage[]>()
     ]);
 
-    if (patientError || schedulesError || notificationsError || !patientProfile) {
+    if (
+      patientError ||
+      schedulesError ||
+      notificationsError ||
+      feedbacksError ||
+      encouragementsError ||
+      !patientProfile
+    ) {
       setMessage(
         patientError?.message ??
           schedulesError?.message ??
           notificationsError?.message ??
+          feedbacksError?.message ??
+          encouragementsError?.message ??
           "读取管理员数据失败"
       );
       setIsLoading(false);
@@ -138,28 +207,55 @@ export default function AdminPage() {
       patientProfile.created_at.slice(0, 10) > last7Days[0]
         ? patientProfile.created_at.slice(0, 10)
         : last7Days[0];
+    const analysisStartDate =
+      patientProfile.created_at.slice(0, 10) > last30Days[0]
+        ? patientProfile.created_at.slice(0, 10)
+        : last30Days[0];
 
-    const { data: checkins, error: checkinsError } = await supabase
-      .from("checkins")
-      .select("*")
-      .eq("user_id", link.patient_id)
-      .gte("checkin_date", statsStartDate)
-      .lte("checkin_date", today)
-      .returns<Checkin[]>();
+    const [
+      { data: checkins, error: checkinsError },
+      { data: pauseDays, error: pauseDaysError }
+    ] = await Promise.all([
+      supabase
+        .from("checkins")
+        .select("*")
+        .eq("user_id", link.patient_id)
+        .gte("checkin_date", analysisStartDate)
+        .lte("checkin_date", today)
+        .returns<Checkin[]>(),
+      supabase
+        .from("pause_days")
+        .select("*")
+        .eq("user_id", link.patient_id)
+        .gte("pause_date", analysisStartDate)
+        .lte("pause_date", today)
+        .returns<Array<{ pause_date: string }>>()
+    ]);
 
-    if (checkinsError) {
-      setMessage(checkinsError.message);
+    if (checkinsError || pauseDaysError) {
+      setMessage(checkinsError?.message ?? pauseDaysError?.message ?? "读取失败");
       setIsLoading(false);
       return;
     }
 
+    const orderedSchedules = sortSchedules(schedules ?? []);
+    const pauseDates = (pauseDays ?? []).map((pause) => pause.pause_date);
     buildDashboard(
       patientProfile,
-      sortSchedules(schedules ?? []),
+      orderedSchedules,
       checkins ?? [],
-      statsStartDate
+      statsStartDate,
+      pauseDates
+    );
+    setAnalysis(
+      buildAdminAnalysis(orderedSchedules, checkins ?? [], {
+        startDate: analysisStartDate,
+        pauseDates
+      })
     );
     setNotifications(notificationsData ?? []);
+    setFeedbacks(feedbacksData ?? []);
+    setEncouragements(encouragementsData ?? []);
     setIsLoading(false);
   }
 
@@ -167,7 +263,8 @@ export default function AdminPage() {
     targetPatient: Profile,
     orderedSchedules: MedicineSchedule[],
     checkins: Checkin[],
-    statsStartDate: string
+    statsStartDate: string,
+    pauseDates: string[] = []
   ) {
     const checkinsByScheduleToday = new Map(
       checkins
@@ -185,9 +282,110 @@ export default function AdminPage() {
 
     setWeeklyStats(
       buildWeeklyStats(orderedSchedules, checkins, {
-        startDate: statsStartDate
+        startDate: statsStartDate,
+        pauseDates
       })
     );
+  }
+
+  async function handleCreateEncouragement(
+    type: EncouragementType,
+    content: string
+  ) {
+    if (!patient) {
+      return;
+    }
+
+    setIsSavingEncouragement(true);
+    setMessage("");
+
+    if (!hasSupabaseConfig) {
+      createDemoEncouragementMessage(patient.id, type, content);
+      setIsSavingEncouragement(false);
+      setMessage("鼓励语已新增。");
+      await loadAdminDashboard();
+      return;
+    }
+
+    const { error } = await supabase.from("encouragement_messages").insert({
+      patient_id: patient.id,
+      type,
+      content: content.trim(),
+      enabled: true
+    });
+
+    setIsSavingEncouragement(false);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setMessage("鼓励语已新增。");
+    await loadAdminDashboard();
+  }
+
+  async function handleUpdateEncouragement(
+    id: string,
+    updates: Partial<Pick<EncouragementMessage, "content" | "enabled" | "type">>
+  ) {
+    setIsSavingEncouragement(true);
+    setMessage("");
+
+    if (!hasSupabaseConfig) {
+      updateDemoEncouragementMessage(id, updates);
+      setIsSavingEncouragement(false);
+      setMessage("鼓励语已更新。");
+      await loadAdminDashboard();
+      return;
+    }
+
+    const { error } = await supabase
+      .from("encouragement_messages")
+      .update({
+        ...updates,
+        content: updates.content?.trim(),
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", id);
+
+    setIsSavingEncouragement(false);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setMessage("鼓励语已更新。");
+    await loadAdminDashboard();
+  }
+
+  async function handleDeleteEncouragement(id: string) {
+    setIsSavingEncouragement(true);
+    setMessage("");
+
+    if (!hasSupabaseConfig) {
+      deleteDemoEncouragementMessage(id);
+      setIsSavingEncouragement(false);
+      setMessage("鼓励语已删除。");
+      await loadAdminDashboard();
+      return;
+    }
+
+    const { error } = await supabase
+      .from("encouragement_messages")
+      .delete()
+      .eq("id", id);
+
+    setIsSavingEncouragement(false);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setMessage("鼓励语已删除。");
+    await loadAdminDashboard();
   }
 
   async function handleSignOut() {
@@ -233,6 +431,30 @@ export default function AdminPage() {
         </button>
       </nav>
 
+      <div className="mt-3 grid grid-cols-4 gap-2">
+        {[
+          ["today", "今日"],
+          ["messages", "消息"],
+          ["analysis", "分析"],
+          ["encouragement", "鼓励语"]
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() =>
+              setActiveTab(key as "today" | "messages" | "analysis" | "encouragement")
+            }
+            className={`h-10 rounded-lg px-2 text-sm font-bold ring-1 ${
+              activeTab === key
+                ? "bg-brand-600 text-white ring-brand-600"
+                : "bg-white text-brand-700 ring-brand-100 active:bg-brand-50"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="mt-6 space-y-4">
         {isLoading ? (
           <div className="rounded-lg bg-white p-4 text-sm text-slate-600 shadow-soft ring-1 ring-brand-100">
@@ -240,13 +462,37 @@ export default function AdminPage() {
           </div>
         ) : patient ? (
           <>
-            <AdminTodayStatus
-              patientName={patient.display_name ?? "朋友"}
-              checkinDate={today}
-              items={todayItems}
-            />
-            <AdminNotifications notifications={notifications} />
-            {weeklyStats ? <WeeklyStatsSummary stats={weeklyStats} /> : null}
+            {activeTab === "today" ? (
+              <AdminTodayStatus
+                patientName={patient.display_name ?? "朋友"}
+                checkinDate={today}
+                items={todayItems}
+              />
+            ) : null}
+            {activeTab === "messages" ? (
+              <>
+                <AdminNotifications notifications={notifications} />
+                <AdminFeedbacks
+                  feedbacks={feedbacks}
+                  patientName={patient.display_name ?? "朋友"}
+                />
+              </>
+            ) : null}
+            {activeTab === "analysis" ? (
+              <>
+                {analysis ? <AdminAnalytics analysis={analysis} /> : null}
+                {weeklyStats ? <WeeklyStatsSummary stats={weeklyStats} /> : null}
+              </>
+            ) : null}
+            {activeTab === "encouragement" ? (
+              <EncouragementManager
+                messages={encouragements}
+                isSaving={isSavingEncouragement}
+                onCreate={handleCreateEncouragement}
+                onUpdate={handleUpdateEncouragement}
+                onDelete={handleDeleteEncouragement}
+              />
+            ) : null}
           </>
         ) : null}
       </div>

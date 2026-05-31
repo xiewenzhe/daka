@@ -13,6 +13,7 @@ export type MedicineSchedule = {
   label: "morning" | "noon" | "evening" | string;
   display_name: string;
   reminder_time: string;
+  medicine_plan: string | null;
   enabled: boolean;
   created_at: string;
 };
@@ -26,6 +27,8 @@ export type Checkin = {
   checkin_type: "normal" | "makeup";
   actual_taken_at: string | null;
   checked_at: string;
+  mood: string | null;
+  photo_url: string | null;
   note: string | null;
   created_at: string;
 };
@@ -57,5 +60,39 @@ export type AdminNotification = {
   checkin_id: string | null;
   message: string;
   read_at: string | null;
+  created_at: string;
+};
+
+export type Feedback = {
+  id: string;
+  patient_id: string;
+  admin_id: string;
+  content: string;
+  read_at: string | null;
+  created_at: string;
+};
+
+export type EncouragementType =
+  | "normal"
+  | "makeup"
+  | "streak_3"
+  | "streak_7"
+  | "streak_14";
+
+export type EncouragementMessage = {
+  id: string;
+  patient_id: string;
+  type: EncouragementType;
+  content: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PauseDay = {
+  id: string;
+  user_id: string;
+  pause_date: string;
+  reason: string | null;
   created_at: string;
 };

@@ -1,9 +1,21 @@
-import type { Checkin, MedicineSchedule, Profile } from "@/lib/types";
+import type {
+  Checkin,
+  EncouragementMessage,
+  EncouragementType,
+  Feedback,
+  MedicineSchedule,
+  PauseDay,
+  Profile
+} from "@/lib/types";
+import { defaultEncouragements } from "@/lib/encouragement";
 
 const DEMO_SESSION_KEY = "daka_demo_account";
 const DEMO_CHECKINS_KEY = "daka_demo_checkins";
 const DEMO_SCHEDULES_KEY = "daka_demo_schedules";
 const DEMO_NOTIFICATIONS_KEY = "daka_demo_admin_notifications";
+const DEMO_FEEDBACKS_KEY = "daka_demo_feedbacks";
+const DEMO_ENCOURAGEMENTS_KEY = "daka_demo_encouragements";
+const DEMO_PAUSE_DAYS_KEY = "daka_demo_pause_days";
 const DEMO_PASSWORD = "526120";
 
 const defaultScheduleSeeds = [
@@ -11,19 +23,22 @@ const defaultScheduleSeeds = [
     id: "demo-schedule-morning",
     label: "morning",
     display_name: "早上",
-    reminder_time: "09:00:00"
+    reminder_time: "09:00:00",
+    medicine_plan: "早餐后按医嘱喝药"
   },
   {
     id: "demo-schedule-noon",
     label: "noon",
     display_name: "中午",
-    reminder_time: "15:00:00"
+    reminder_time: "15:00:00",
+    medicine_plan: "午后按医嘱喝药"
   },
   {
     id: "demo-schedule-evening",
     label: "evening",
     display_name: "晚上",
-    reminder_time: "21:00:00"
+    reminder_time: "21:00:00",
+    medicine_plan: "睡前按医嘱喝药"
   }
 ];
 
@@ -58,12 +73,14 @@ export function signInDemo(account: string, password: string) {
   if (normalizedAccount === "jiajia") {
     localStorage.setItem(DEMO_SESSION_KEY, "jiajia");
     seedDemoHistory();
+    seedDemoEncouragementMessages();
     return { profile: demoPatientProfile, error: null };
   }
 
   if (normalizedAccount === "admin") {
     localStorage.setItem(DEMO_SESSION_KEY, "admin");
     seedDemoHistory();
+    seedDemoEncouragementMessages();
     return { profile: demoAdminProfile, error: null };
   }
 
@@ -128,7 +145,9 @@ export function clearDemoCheckinsForDate(userId: string, checkinDate: string) {
 export function createDemoCheckin(
   userId: string,
   scheduleId: string,
-  checkinDate: string
+  checkinDate: string,
+  mood?: string | null,
+  photoUrl?: string | null
 ) {
   const checkins = readDemoCheckins();
   const existing = checkins.find(
@@ -152,6 +171,8 @@ export function createDemoCheckin(
     actual_taken_at: null,
     checked_at: now,
     status: "checked",
+    mood: mood ?? null,
+    photo_url: photoUrl ?? null,
     note: null,
     created_at: now
   };
@@ -165,8 +186,14 @@ export function createDemoMakeupCheckin(
   scheduleId: string,
   checkinDate: string,
   actualTakenAt: string,
-  note: string
+  note: string,
+  mood?: string | null,
+  photoUrl?: string | null
 ) {
+  if (!note.trim()) {
+    return { data: null, error: "补打卡必须填写原因。" };
+  }
+
   const checkins = readDemoCheckins();
   const existing = checkins.find(
     (checkin) =>
@@ -189,6 +216,8 @@ export function createDemoMakeupCheckin(
     checkin_type: "makeup",
     actual_taken_at: actualTakenAt,
     checked_at: now,
+    mood: mood ?? null,
+    photo_url: photoUrl ?? null,
     note,
     created_at: now
   };
@@ -225,6 +254,8 @@ export function createDemoMissedReason(
     checkin_type: "normal",
     actual_taken_at: null,
     checked_at: now,
+    mood: null,
+    photo_url: null,
     note: reason,
     created_at: now
   };
@@ -282,6 +313,46 @@ export function getDemoAdminNotifications() {
   }
 }
 
+export function createDemoFeedback(patientId: string, content: string) {
+  const trimmedContent = content.trim();
+
+  if (!trimmedContent) {
+    return { data: null, error: "建议内容不能为空。" };
+  }
+
+  const feedbacks = getDemoFeedbacks();
+  const now = new Date().toISOString();
+  const next: Feedback = {
+    id: `demo-feedback-${Date.now()}`,
+    patient_id: patientId,
+    admin_id: demoAdminProfile.id,
+    content: trimmedContent,
+    read_at: null,
+    created_at: now
+  };
+
+  localStorage.setItem(
+    DEMO_FEEDBACKS_KEY,
+    JSON.stringify([next, ...feedbacks])
+  );
+
+  return { data: next, error: null };
+}
+
+export function getDemoFeedbacks() {
+  const raw = localStorage.getItem(DEMO_FEEDBACKS_KEY);
+
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    return JSON.parse(raw) as Feedback[];
+  } catch {
+    return [];
+  }
+}
+
 export function updateDemoScheduleTime(scheduleId: string, reminderTime: string) {
   const schedules = readDemoSchedules();
   const nextSchedules = schedules.map((schedule) =>
@@ -294,6 +365,125 @@ export function updateDemoScheduleTime(scheduleId: string, reminderTime: string)
   return nextSchedules.find((schedule) => schedule.id === scheduleId) ?? null;
 }
 
+export function updateDemoSchedulePlan(scheduleId: string, medicinePlan: string) {
+  const schedules = readDemoSchedules();
+  const nextSchedules = schedules.map((schedule) =>
+    schedule.id === scheduleId
+      ? { ...schedule, medicine_plan: medicinePlan.trim() || null }
+      : schedule
+  );
+
+  writeDemoSchedules(nextSchedules);
+  return nextSchedules.find((schedule) => schedule.id === scheduleId) ?? null;
+}
+
+export function getDemoPauseDay(userId: string, pauseDate: string) {
+  return getDemoPauseDays(userId).find((pause) => pause.pause_date === pauseDate) ?? null;
+}
+
+export function getDemoPauseDays(userId: string, dateFrom?: string, dateTo?: string) {
+  return readDemoPauseDays().filter((pause) => {
+    if (pause.user_id !== userId) {
+      return false;
+    }
+
+    if (dateFrom && pause.pause_date < dateFrom) {
+      return false;
+    }
+
+    if (dateTo && pause.pause_date > dateTo) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+export function saveDemoPauseDay(userId: string, pauseDate: string, reason: string) {
+  const pauseDays = readDemoPauseDays();
+  const now = new Date().toISOString();
+  const existing = pauseDays.find(
+    (pause) => pause.user_id === userId && pause.pause_date === pauseDate
+  );
+  const next: PauseDay = {
+    id: existing?.id ?? `demo-pause-${userId}-${pauseDate}`,
+    user_id: userId,
+    pause_date: pauseDate,
+    reason: reason.trim() || null,
+    created_at: existing?.created_at ?? now
+  };
+
+  writeDemoPauseDays([
+    next,
+    ...pauseDays.filter(
+      (pause) => !(pause.user_id === userId && pause.pause_date === pauseDate)
+    )
+  ]);
+
+  return next;
+}
+
+export function removeDemoPauseDay(userId: string, pauseDate: string) {
+  writeDemoPauseDays(
+    readDemoPauseDays().filter(
+      (pause) => !(pause.user_id === userId && pause.pause_date === pauseDate)
+    )
+  );
+}
+
+export function getDemoEncouragementMessages(patientId = demoPatientProfile.id) {
+  return readDemoEncouragementMessages().filter(
+    (message) => message.patient_id === patientId
+  );
+}
+
+export function createDemoEncouragementMessage(
+  patientId: string,
+  type: EncouragementType,
+  content: string
+) {
+  const now = new Date().toISOString();
+  const next: EncouragementMessage = {
+    id: `demo-encouragement-${Date.now()}`,
+    patient_id: patientId,
+    type,
+    content: content.trim(),
+    enabled: true,
+    created_at: now,
+    updated_at: now
+  };
+
+  writeDemoEncouragementMessages([next, ...readDemoEncouragementMessages()]);
+  return next;
+}
+
+export function updateDemoEncouragementMessage(
+  id: string,
+  updates: Pick<Partial<EncouragementMessage>, "content" | "enabled" | "type">
+) {
+  const now = new Date().toISOString();
+  const messages = readDemoEncouragementMessages();
+  const nextMessages = messages.map((message) =>
+    message.id === id
+      ? {
+          ...message,
+          ...updates,
+          content: updates.content?.trim() ?? message.content,
+          updated_at: now
+        }
+      : message
+  );
+
+  writeDemoEncouragementMessages(nextMessages);
+  return nextMessages.find((message) => message.id === id) ?? null;
+}
+
+export function deleteDemoEncouragementMessage(id: string) {
+  writeDemoEncouragementMessages(
+    readDemoEncouragementMessages().filter((message) => message.id !== id)
+  );
+}
+
 function readDemoSchedules(): MedicineSchedule[] {
   const raw = localStorage.getItem(DEMO_SCHEDULES_KEY);
 
@@ -301,7 +491,8 @@ function readDemoSchedules(): MedicineSchedule[] {
     try {
       return (JSON.parse(raw) as MedicineSchedule[]).map((schedule) => ({
         ...schedule,
-        reminder_time: normalizeTime(schedule.reminder_time)
+        reminder_time: normalizeTime(schedule.reminder_time),
+        medicine_plan: schedule.medicine_plan ?? null
       }));
     } catch {
       return createDefaultDemoSchedules();
@@ -322,6 +513,7 @@ function createDefaultDemoSchedules(): MedicineSchedule[] {
     ...schedule,
     user_id: demoPatientProfile.id,
     reminder_time: normalizeTime(schedule.reminder_time),
+    medicine_plan: schedule.medicine_plan,
     enabled: true,
     created_at: "2026-01-01T00:00:00.000Z"
   }));
@@ -343,7 +535,9 @@ function readDemoCheckins(): Checkin[] {
       ...checkin,
       status: checkin.status ?? "checked",
       checkin_type: checkin.checkin_type ?? "normal",
-      actual_taken_at: checkin.actual_taken_at ?? null
+      actual_taken_at: checkin.actual_taken_at ?? null,
+      mood: checkin.mood ?? null,
+      photo_url: checkin.photo_url ?? null
     }));
   } catch {
     return [];
@@ -385,6 +579,8 @@ function seedDemoHistory() {
         checkin_type: "normal",
         actual_taken_at: null,
         checked_at: checkedAt.toISOString(),
+        mood: null,
+        photo_url: null,
         note: null,
         created_at: checkedAt.toISOString()
       });
@@ -392,4 +588,62 @@ function seedDemoHistory() {
   }
 
   writeDemoCheckins(seeded);
+}
+
+function seedDemoEncouragementMessages() {
+  if (localStorage.getItem(DEMO_ENCOURAGEMENTS_KEY) !== null) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const messages = Object.entries(defaultEncouragements).flatMap(
+    ([type, contents]) =>
+      contents.map((content, index) => ({
+        id: `demo-encouragement-${type}-${index}`,
+        patient_id: demoPatientProfile.id,
+        type: type as EncouragementType,
+        content,
+        enabled: true,
+        created_at: now,
+        updated_at: now
+      }))
+  );
+
+  writeDemoEncouragementMessages(messages);
+}
+
+function readDemoPauseDays(): PauseDay[] {
+  const raw = localStorage.getItem(DEMO_PAUSE_DAYS_KEY);
+
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    return JSON.parse(raw) as PauseDay[];
+  } catch {
+    return [];
+  }
+}
+
+function writeDemoPauseDays(pauseDays: PauseDay[]) {
+  localStorage.setItem(DEMO_PAUSE_DAYS_KEY, JSON.stringify(pauseDays));
+}
+
+function readDemoEncouragementMessages(): EncouragementMessage[] {
+  const raw = localStorage.getItem(DEMO_ENCOURAGEMENTS_KEY);
+
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    return JSON.parse(raw) as EncouragementMessage[];
+  } catch {
+    return [];
+  }
+}
+
+function writeDemoEncouragementMessages(messages: EncouragementMessage[]) {
+  localStorage.setItem(DEMO_ENCOURAGEMENTS_KEY, JSON.stringify(messages));
 }
