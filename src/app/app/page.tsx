@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CelebrationToast } from "@/components/CelebrationToast";
+import { DailyMoodSelector } from "@/components/DailyMoodSelector";
 import { NotificationSetup } from "@/components/NotificationSetup";
 import { PatientHeader } from "@/components/PatientHeader";
 import { PatientNav } from "@/components/PatientNav";
@@ -51,6 +52,7 @@ export default function PatientAppPage() {
   const [encouragements, setEncouragements] = useState<EncouragementMessage[]>([]);
   const [pauseDay, setPauseDay] = useState<PauseDay | null>(null);
   const [weeklyStats, setWeeklyStats] = useState<WeeklyStats | null>(null);
+  const [dailyMood, setDailyMood] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -94,7 +96,11 @@ export default function PatientAppPage() {
       const pauseDays = getDemoPauseDays(user.id, statsStartDate, today);
       setEncouragements(getDemoEncouragementMessages(user.id));
       setPauseDay(getDemoPauseDay(user.id, today));
-      setItems(mergeTodayItems(schedules, checkins, today));
+      const todayItems = mergeTodayItems(schedules, checkins, today);
+      setItems(todayItems);
+      // Get first mood from today's checkins
+      const firstMood = todayItems.find(item => item.checkin?.mood)?.checkin?.mood ?? null;
+      setDailyMood(firstMood);
       setWeeklyStats(
         buildWeeklyStats(schedules, checkins, {
           startDate: statsStartDate,
@@ -160,7 +166,11 @@ export default function PatientAppPage() {
     setPauseDay(
       (pauseDays ?? []).find((pause) => pause.pause_date === today) ?? null
     );
-    setItems(mergeTodayItems(orderedSchedules, checkins ?? [], today));
+    const todayItems = mergeTodayItems(orderedSchedules, checkins ?? [], today);
+    setItems(todayItems);
+    // Get first mood from today's checkins
+    const firstMood = todayItems.find(item => item.checkin?.mood)?.checkin?.mood ?? null;
+    setDailyMood(firstMood);
     setWeeklyStats(
       buildWeeklyStats(orderedSchedules, checkins ?? [], {
         startDate: statsStartDate,
@@ -168,6 +178,11 @@ export default function PatientAppPage() {
       })
     );
     setIsLoading(false);
+  }
+
+  async function handleDailyMoodChange(mood: string | null) {
+    // Store daily mood
+    setDailyMood(mood);
   }
 
   async function handleCheckin(
@@ -179,6 +194,9 @@ export default function PatientAppPage() {
       return;
     }
 
+    // Use daily mood if no specific mood provided
+    const finalMood = mood ?? dailyMood;
+
     setSubmittingId(scheduleId);
     setMessage("");
 
@@ -188,7 +206,7 @@ export default function PatientAppPage() {
         userId,
         scheduleId,
         today,
-        mood,
+        finalMood,
         photoUrl
       );
       setSubmittingId(null);
@@ -216,7 +234,7 @@ export default function PatientAppPage() {
         checkin_date: today,
         status: "checked",
         checkin_type: "normal",
-        mood,
+        mood: finalMood,
         photo_url: photoUrl
       })
       .select("*")
@@ -259,7 +277,7 @@ export default function PatientAppPage() {
         today,
         actualTakenAt,
         note,
-        mood,
+        finalMood,
         photoUrl
       );
       setSubmittingId(null);
@@ -288,7 +306,7 @@ export default function PatientAppPage() {
         status: "checked",
         checkin_type: "makeup",
         actual_taken_at: actualTakenAt,
-        mood,
+        mood: finalMood,
         photo_url: photoUrl,
         note
       })
@@ -465,6 +483,16 @@ export default function PatientAppPage() {
             清空今天演示记录
           </button>
         ) : null}
+
+        <section className="mt-6">
+          {!isLoading && !pauseDay && (
+            <DailyMoodSelector
+              selectedMood={dailyMood}
+              onMoodChange={handleDailyMoodChange}
+              isLoading={isLoading}
+            />
+          )}
+        </section>
 
         <section className="mt-6">
           {isLoading ? (

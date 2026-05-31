@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AchievementSummary } from "@/components/AchievementSummary";
-import { MonthlyCheckinCalendar } from "@/components/MonthlyCheckinCalendar";
+import { SwitchableCalendar } from "@/components/SwitchableCalendar";
 import { PatientHeader } from "@/components/PatientHeader";
 import { PatientNav } from "@/components/PatientNav";
 import { WeeklyStatsSummary } from "@/components/WeeklyStatsSummary";
@@ -150,10 +150,11 @@ export default function PatientStatsPage() {
               {weeklyStats ? <WeeklyStatsSummary stats={weeklyStats} /> : null}
               {weeklyStats ? <AchievementSummary stats={weeklyStats} /> : null}
               {schedules.length > 0 ? (
-                <MonthlyCheckinCalendar
+                <SwitchableCalendar
                   schedules={schedules}
                   checkins={monthCheckins}
                   startDate={profileStartDate}
+                  calendarType="checkin"
                 />
               ) : null}
             </>

@@ -121,11 +121,17 @@ export function CheckinCard({
 
       {!item.checkin && canCheckin ? (
         <div className="mt-5 space-y-3">
-          <MoodAndPhotoFields
-            mood={mood}
-            onMoodChange={setMood}
-            onPhotoChange={setPhotoFile}
-          />
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-700">
+              上传图片（可选）
+            </span>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)}
+              className="mt-2 block w-full text-sm text-slate-600 file:mr-3 file:h-9 file:rounded-lg file:border-0 file:bg-white file:px-3 file:text-sm file:font-bold file:text-brand-700"
+            />
+          </label>
           <button
             type="button"
             disabled={isSubmitting}
@@ -173,11 +179,17 @@ export function CheckinCard({
               placeholder="必须填写原因，例如：忘记点击，实际已经喝了。"
             />
           </label>
-          <MoodAndPhotoFields
-            mood={mood}
-            onMoodChange={setMood}
-            onPhotoChange={setPhotoFile}
-          />
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-700">
+              上传图片（可选）
+            </span>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)}
+              className="mt-2 block w-full text-sm text-slate-600 file:mr-3 file:h-9 file:rounded-lg file:border-0 file:bg-white file:px-3 file:text-sm file:font-bold file:text-brand-700"
+            />
+          </label>
           <button
             type="button"
             disabled={isSubmitting || !makeupTime || !trimmedNote}
@@ -197,53 +209,6 @@ export function CheckinCard({
         </div>
       ) : null}
     </article>
-  );
-}
-
-const moodOptions = ["超乖 👑", "开心 😊", "一般 🙂", "有点累 😴", "不舒服 😟"];
-
-function MoodAndPhotoFields({
-  mood,
-  onMoodChange,
-  onPhotoChange
-}: {
-  mood: string;
-  onMoodChange: (mood: string) => void;
-  onPhotoChange: (file: File | null) => void;
-}) {
-  return (
-    <div className="space-y-3 rounded-lg bg-brand-50 p-3 ring-1 ring-brand-100">
-      <div>
-        <p className="text-sm font-semibold text-slate-700">今天心情</p>
-        <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-          {moodOptions.map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => onMoodChange(mood === item ? "" : item)}
-              className={`h-9 shrink-0 rounded-full px-3 text-sm font-bold ring-1 ${
-                mood === item
-                  ? "bg-brand-600 text-white ring-brand-600"
-                  : "bg-white text-slate-700 ring-brand-100"
-              }`}
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-      </div>
-      <label className="block">
-        <span className="text-sm font-semibold text-slate-700">
-          上传图片（可选）
-        </span>
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(event) => onPhotoChange(event.target.files?.[0] ?? null)}
-          className="mt-2 block w-full text-sm text-slate-600 file:mr-3 file:h-9 file:rounded-lg file:border-0 file:bg-white file:px-3 file:text-sm file:font-bold file:text-brand-700"
-        />
-      </label>
-    </div>
   );
 }
 
