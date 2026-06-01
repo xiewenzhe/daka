@@ -9,7 +9,6 @@ import { PatientNav } from "@/components/PatientNav";
 import { WeeklyStatsSummary } from "@/components/WeeklyStatsSummary";
 import {
   getLocalDateString,
-  getMonthStartLocalDateString,
   getRecentLocalDateStrings
 } from "@/lib/date";
 import { getCurrentProfile } from "@/lib/auth";
@@ -33,7 +32,6 @@ import type {
 export default function PatientStatsPage() {
   const router = useRouter();
   const today = useMemo(() => getLocalDateString(), []);
-  const monthStart = useMemo(() => getMonthStartLocalDateString(), []);
   const last7Days = useMemo(() => getRecentLocalDateStrings(7), []);
   const [profileStartDate, setProfileStartDate] = useState<string | null>(null);
   const [schedules, setSchedules] = useState<MedicineSchedule[]>([]);
@@ -68,7 +66,8 @@ export default function PatientStatsPage() {
       profile.created_at.slice(0, 10) > last7Days[0]
         ? profile.created_at.slice(0, 10)
         : last7Days[0];
-    const queryStartDate = [statsStartDate, monthStart].sort()[0];
+    const profileCreatedDate = profile.created_at.slice(0, 10);
+    const queryStartDate = profileCreatedDate;
     setProfileStartDate(profile.created_at.slice(0, 10));
 
     if (!hasSupabaseConfig) {
@@ -77,12 +76,8 @@ export default function PatientStatsPage() {
       const dailyMoods = getDemoDailyMoods(user.id, queryStartDate, today);
       const pauseDays = getDemoPauseDays(user.id, statsStartDate, today);
       setSchedules(orderedSchedules);
-      setMonthMoods(
-        dailyMoods.filter((dailyMood) => dailyMood.mood_date >= monthStart)
-      );
-      setMonthCheckins(
-        checkins.filter((checkin) => checkin.checkin_date >= monthStart)
-      );
+      setMonthMoods(dailyMoods);
+      setMonthCheckins(checkins);
       setWeeklyStats(
         buildWeeklyStats(orderedSchedules, checkins, {
           startDate: statsStartDate,
@@ -143,12 +138,8 @@ export default function PatientStatsPage() {
 
     const orderedSchedules = sortSchedules(schedulesData ?? []);
     setSchedules(orderedSchedules);
-    setMonthCheckins(
-      (checkins ?? []).filter((checkin) => checkin.checkin_date >= monthStart)
-    );
-    setMonthMoods(
-      (dailyMoods ?? []).filter((dailyMood) => dailyMood.mood_date >= monthStart)
-    );
+    setMonthCheckins(checkins ?? []);
+    setMonthMoods(dailyMoods ?? []);
     setWeeklyStats(
       buildWeeklyStats(orderedSchedules, checkins ?? [], {
         startDate: statsStartDate,
