@@ -15,13 +15,20 @@ import {
 import { getCurrentProfile } from "@/lib/auth";
 import {
   getDemoCheckins,
+  getDemoDailyMoods,
   getDemoPauseDays,
   getDemoSchedules
 } from "@/lib/demoData";
 import { sortSchedules } from "@/lib/patientHelpers";
 import { buildWeeklyStats } from "@/lib/stats";
 import { hasSupabaseConfig, supabase } from "@/lib/supabaseClient";
-import type { Checkin, MedicineSchedule, PauseDay, WeeklyStats } from "@/lib/types";
+import type {
+  Checkin,
+  DailyMood,
+  MedicineSchedule,
+  PauseDay,
+  WeeklyStats
+} from "@/lib/types";
 
 export default function PatientStatsPage() {
   const router = useRouter();
@@ -31,6 +38,7 @@ export default function PatientStatsPage() {
   const [profileStartDate, setProfileStartDate] = useState<string | null>(null);
   const [schedules, setSchedules] = useState<MedicineSchedule[]>([]);
   const [monthCheckins, setMonthCheckins] = useState<Checkin[]>([]);
+  const [monthMoods, setMonthMoods] = useState<DailyMood[]>([]);
   const [weeklyStats, setWeeklyStats] = useState<WeeklyStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -66,8 +74,12 @@ export default function PatientStatsPage() {
     if (!hasSupabaseConfig) {
       const orderedSchedules = sortSchedules(getDemoSchedules(user.id));
       const checkins = getDemoCheckins(user.id, queryStartDate, today);
+      const dailyMoods = getDemoDailyMoods(user.id, queryStartDate, today);
       const pauseDays = getDemoPauseDays(user.id, statsStartDate, today);
       setSchedules(orderedSchedules);
+      setMonthMoods(
+        dailyMoods.filter((dailyMood) => dailyMood.mood_date >= monthStart)
+      );
       setMonthCheckins(
         checkins.filter((checkin) => checkin.checkin_date >= monthStart)
       );
@@ -84,7 +96,8 @@ export default function PatientStatsPage() {
     const [
       { data: schedulesData, error: schedulesError },
       { data: checkins, error: checkinsError },
-      { data: pauseDays, error: pauseDaysError }
+      { data: pauseDays, error: pauseDaysError },
+      { data: dailyMoods, error: dailyMoodsError }
     ] = await Promise.all([
       supabase
         .from("medicine_schedules")
@@ -104,16 +117,24 @@ export default function PatientStatsPage() {
         .from("pause_days")
         .select("*")
         .eq("user_id", user.id)
-        .gte("pause_date", statsStartDate)
-        .lte("pause_date", today)
-        .returns<PauseDay[]>()
+          .gte("pause_date", statsStartDate)
+          .lte("pause_date", today)
+        .returns<PauseDay[]>(),
+      supabase
+        .from("daily_moods")
+        .select("*")
+        .eq("user_id", user.id)
+        .gte("mood_date", queryStartDate)
+        .lte("mood_date", today)
+        .returns<DailyMood[]>()
     ]);
 
-    if (schedulesError || checkinsError || pauseDaysError) {
+    if (schedulesError || checkinsError || pauseDaysError || dailyMoodsError) {
       setMessage(
         schedulesError?.message ??
           checkinsError?.message ??
           pauseDaysError?.message ??
+          dailyMoodsError?.message ??
           "读取统计失败"
       );
       setIsLoading(false);
@@ -124,6 +145,9 @@ export default function PatientStatsPage() {
     setSchedules(orderedSchedules);
     setMonthCheckins(
       (checkins ?? []).filter((checkin) => checkin.checkin_date >= monthStart)
+    );
+    setMonthMoods(
+      (dailyMoods ?? []).filter((dailyMood) => dailyMood.mood_date >= monthStart)
     );
     setWeeklyStats(
       buildWeeklyStats(orderedSchedules, checkins ?? [], {
@@ -153,6 +177,7 @@ export default function PatientStatsPage() {
                 <SwitchableCalendar
                   schedules={schedules}
                   checkins={monthCheckins}
+                  dailyMoods={monthMoods}
                   startDate={profileStartDate}
                   calendarType="checkin"
                 />

@@ -23,9 +23,11 @@ import {
   createDemoMissedReason,
   getDemoCheckins,
   getDemoEncouragementMessages,
+  getDemoDailyMood,
   getDemoPauseDay,
   getDemoPauseDays,
-  getDemoSchedules
+  getDemoSchedules,
+  saveDemoDailyMood
 } from "@/lib/demoData";
 import {
   readFileAsDataUrl,
@@ -36,6 +38,7 @@ import { buildWeeklyStats } from "@/lib/stats";
 import { hasSupabaseConfig, supabase } from "@/lib/supabaseClient";
 import type {
   Checkin,
+  DailyMood,
   EncouragementMessage,
   MedicineSchedule,
   PauseDay,
@@ -51,8 +54,8 @@ export default function PatientAppPage() {
   const [items, setItems] = useState<ScheduleWithCheckin[]>([]);
   const [encouragements, setEncouragements] = useState<EncouragementMessage[]>([]);
   const [pauseDay, setPauseDay] = useState<PauseDay | null>(null);
+  const [dailyMood, setDailyMood] = useState<DailyMood | null>(null);
   const [weeklyStats, setWeeklyStats] = useState<WeeklyStats | null>(null);
-  const [dailyMood, setDailyMood] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -95,12 +98,10 @@ export default function PatientAppPage() {
       const checkins = getDemoCheckins(user.id, statsStartDate, today);
       const pauseDays = getDemoPauseDays(user.id, statsStartDate, today);
       setEncouragements(getDemoEncouragementMessages(user.id));
+      setDailyMood(getDemoDailyMood(user.id, today));
       setPauseDay(getDemoPauseDay(user.id, today));
       const todayItems = mergeTodayItems(schedules, checkins, today);
       setItems(todayItems);
-      // Get first mood from today's checkins
-      const firstMood = todayItems.find(item => item.checkin?.mood)?.checkin?.mood ?? null;
-      setDailyMood(firstMood);
       setWeeklyStats(
         buildWeeklyStats(schedules, checkins, {
           startDate: statsStartDate,
@@ -115,7 +116,8 @@ export default function PatientAppPage() {
       { data: schedules, error: schedulesError },
       { data: checkins, error: checkinsError },
       { data: encouragementsData, error: encouragementsError },
-      { data: pauseDays, error: pauseDaysError }
+      { data: pauseDays, error: pauseDaysError },
+      { data: dailyMoodData, error: dailyMoodError }
     ] = await Promise.all([
       supabase
         .from("medicine_schedules")
@@ -140,17 +142,30 @@ export default function PatientAppPage() {
         .from("pause_days")
         .select("*")
         .eq("user_id", user.id)
-        .gte("pause_date", statsStartDate)
-        .lte("pause_date", today)
-        .returns<PauseDay[]>()
+          .gte("pause_date", statsStartDate)
+          .lte("pause_date", today)
+          .returns<PauseDay[]>(),
+      supabase
+        .from("daily_moods")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("mood_date", today)
+        .maybeSingle<DailyMood>()
     ]);
 
-    if (schedulesError || checkinsError || encouragementsError || pauseDaysError) {
+    if (
+      schedulesError ||
+      checkinsError ||
+      encouragementsError ||
+      pauseDaysError ||
+      dailyMoodError
+    ) {
       setMessage(
         schedulesError?.message ??
           checkinsError?.message ??
           encouragementsError?.message ??
           pauseDaysError?.message ??
+          dailyMoodError?.message ??
           "读取失败"
       );
       setIsLoading(false);
@@ -163,14 +178,12 @@ export default function PatientAppPage() {
       return;
     }
     setEncouragements(encouragementsData ?? []);
+    setDailyMood(dailyMoodData ?? null);
     setPauseDay(
       (pauseDays ?? []).find((pause) => pause.pause_date === today) ?? null
     );
     const todayItems = mergeTodayItems(orderedSchedules, checkins ?? [], today);
     setItems(todayItems);
-    // Get first mood from today's checkins
-    const firstMood = todayItems.find(item => item.checkin?.mood)?.checkin?.mood ?? null;
-    setDailyMood(firstMood);
     setWeeklyStats(
       buildWeeklyStats(orderedSchedules, checkins ?? [], {
         startDate: statsStartDate,
@@ -178,11 +191,6 @@ export default function PatientAppPage() {
       })
     );
     setIsLoading(false);
-  }
-
-  async function handleDailyMoodChange(mood: string | null) {
-    // Store daily mood
-    setDailyMood(mood);
   }
 
   async function handleCheckin(
@@ -194,9 +202,6 @@ export default function PatientAppPage() {
       return;
     }
 
-    // Use daily mood if no specific mood provided
-    const finalMood = mood ?? dailyMood;
-
     setSubmittingId(scheduleId);
     setMessage("");
 
@@ -206,7 +211,7 @@ export default function PatientAppPage() {
         userId,
         scheduleId,
         today,
-        finalMood,
+        mood,
         photoUrl
       );
       setSubmittingId(null);
@@ -234,7 +239,7 @@ export default function PatientAppPage() {
         checkin_date: today,
         status: "checked",
         checkin_type: "normal",
-        mood: finalMood,
+        mood,
         photo_url: photoUrl
       })
       .select("*")
@@ -277,7 +282,7 @@ export default function PatientAppPage() {
         today,
         actualTakenAt,
         note,
-        finalMood,
+        mood,
         photoUrl
       );
       setSubmittingId(null);
@@ -306,7 +311,7 @@ export default function PatientAppPage() {
         status: "checked",
         checkin_type: "makeup",
         actual_taken_at: actualTakenAt,
-        mood: finalMood,
+        mood,
         photo_url: photoUrl,
         note
       })
@@ -364,6 +369,37 @@ export default function PatientAppPage() {
         error.code === "23505" ? "今天这个时间段已经记录过了。" : error.message
       );
       await loadToday();
+      return;
+    }
+
+    await loadToday();
+  }
+
+  async function handleSaveDailyMood(mood: string) {
+    if (!userId) {
+      return;
+    }
+
+    setMessage("");
+
+    if (!hasSupabaseConfig) {
+      saveDemoDailyMood(userId, today, mood);
+      await loadToday();
+      return;
+    }
+
+    const { error } = await supabase.from("daily_moods").upsert(
+      {
+        user_id: userId,
+        mood_date: today,
+        mood,
+        updated_at: new Date().toISOString()
+      },
+      { onConflict: "user_id,mood_date" }
+    );
+
+    if (error) {
+      setMessage(error.message);
       return;
     }
 
@@ -474,6 +510,14 @@ export default function PatientAppPage() {
         <PatientNav />
         <NotificationSetup />
 
+        <div className="mt-5">
+          <DailyMoodSelector
+            selectedMood={dailyMood?.mood ?? null}
+            onMoodSave={handleSaveDailyMood}
+            isLoading={isLoading}
+          />
+        </div>
+
         {!hasSupabaseConfig ? (
           <button
             type="button"
@@ -483,16 +527,6 @@ export default function PatientAppPage() {
             清空今天演示记录
           </button>
         ) : null}
-
-        <section className="mt-6">
-          {!isLoading && !pauseDay && (
-            <DailyMoodSelector
-              selectedMood={dailyMood}
-              onMoodChange={handleDailyMoodChange}
-              isLoading={isLoading}
-            />
-          )}
-        </section>
 
         <section className="mt-6">
           {isLoading ? (

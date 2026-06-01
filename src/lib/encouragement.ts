@@ -46,15 +46,11 @@ export function pickEncouragement(
   customMessages: EncouragementMessage[] = []
 ) {
   const custom = customMessages
-    .filter((message) => message.type === type && message.enabled)
+    .filter((message) => message.type === type)
     .map((message) => message.content.trim())
     .filter(Boolean);
-  const pool =
-    custom.length > 0
-      ? custom
-      : customMessages.length > 0
-        ? []
-        : defaultEncouragements[type];
+
+  const pool = custom.length > 0 ? custom : defaultEncouragements[type];
 
   return pool[Math.floor(Math.random() * pool.length)] ?? "";
 }

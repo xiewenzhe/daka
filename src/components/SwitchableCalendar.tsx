@@ -1,29 +1,32 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   formatChineseMonth,
   getScheduleRuntimeStatus
 } from "@/lib/date";
-import type { Checkin, MedicineSchedule } from "@/lib/types";
+import type { Checkin, DailyMood, MedicineSchedule } from "@/lib/types";
 
 const moodEmojis: Record<string, string> = {
   "开心 😊": "😊",
-  "一般 🙂": "🙂",
+  "正常 🙂": "🙂",
   "有点累 😴": "😴",
   "烦躁 😠": "😠"
 };
 
 const moodLabel: Record<string, string> = {
   "开心 😊": "开心",
-  "一般 🙂": "一般",
+  "正常 🙂": "正常",
   "有点累 😴": "有点累",
   "烦躁 😠": "烦躁"
 };
 
+const moodKeys = ["开心 😊", "正常 🙂", "有点累 😴", "烦躁 😠"];
+
 type SwitchableCalendarProps = {
   schedules: MedicineSchedule[];
   checkins: Checkin[];
+  dailyMoods?: DailyMood[];
   startDate?: string | null;
   calendarType?: "checkin" | "mood";
 };
@@ -31,6 +34,7 @@ type SwitchableCalendarProps = {
 export function SwitchableCalendar({
   schedules,
   checkins,
+  dailyMoods = [],
   startDate,
   calendarType = "checkin"
 }: SwitchableCalendarProps) {
@@ -52,22 +56,35 @@ export function SwitchableCalendar({
     );
   }, [month]);
 
-  const checkinByDateSchedule = new Map(
-    checkins.map((checkin) => [
-      `${checkin.checkin_date}:${checkin.schedule_id}`,
-      checkin
-    ])
+  const checkinByDateSchedule = useMemo(
+    () =>
+      new Map(
+        checkins.map((checkin) => [
+          `${checkin.checkin_date}:${checkin.schedule_id}`,
+          checkin
+        ])
+      ),
+    [checkins]
   );
 
-  const moodByDate = new Map(
-    checkins.map((checkin) => [checkin.checkin_date, checkin.mood])
-  );
+  const moodByDate = useMemo(() => {
+    const next = new Map<string, string | null>();
+    checkins.forEach((checkin) => {
+      if (checkin.mood && !next.has(checkin.checkin_date)) {
+        next.set(checkin.checkin_date, checkin.mood);
+      }
+    });
+    dailyMoods.forEach((dailyMood) => {
+      next.set(dailyMood.mood_date, dailyMood.mood);
+    });
+    return next;
+  }, [checkins, dailyMoods]);
 
   // 计算心情统计
   const moodStats = useMemo(() => {
     const stats: Record<string, number> = {
       "开心 😊": 0,
-      "一般 🙂": 0,
+      "正常 🙂": 0,
       "有点累 😴": 0,
       "烦躁 😠": 0
     };
@@ -82,7 +99,54 @@ export function SwitchableCalendar({
     return stats;
   }, [dates, moodByDate]);
 
-  const orderedSchedules = [...schedules].slice(0, 3);
+  const orderedSchedules = useMemo(() => [...schedules].slice(0, 3), [schedules]);
+
+  const checkinStats = useMemo(() => {
+    const stats = {
+      checked: 0,
+      makeup: 0,
+      missed: 0,
+      total: 0
+    };
+
+    dates.forEach((date) => {
+      const isBeforeStart = Boolean(startDate && date < startDate);
+
+      if (isBeforeStart) {
+        return;
+      }
+
+      orderedSchedules.forEach((schedule) => {
+        const checkin = checkinByDateSchedule.get(`${date}:${schedule.id}`);
+        const status = getScheduleRuntimeStatus(
+          date,
+          schedule.reminder_time,
+          checkin
+        );
+
+        if (status === "not_due") {
+          return;
+        }
+
+        stats.total += 1;
+
+        if (status === "checked") {
+          stats.checked += 1;
+        }
+
+        if (status === "makeup") {
+          stats.checked += 1;
+          stats.makeup += 1;
+        }
+
+        if (status === "missed") {
+          stats.missed += 1;
+        }
+      });
+    });
+
+    return stats;
+  }, [checkinByDateSchedule, dates, orderedSchedules, startDate]);
 
   const handlePrevMonth = () => {
     const [year, monthNum] = month.split("-").map(Number);
@@ -262,7 +326,7 @@ export function SwitchableCalendar({
         <div className="mt-6 rounded-lg bg-brand-50 p-4 ring-1 ring-brand-100">
           <p className="text-sm font-bold text-slate-700 mb-3">本月心情统计</p>
           <div className="space-y-3">
-            {["开心 😊", "一般 🙂", "有点累 😴", "烦躁 😠"].map((moodKey) => {
+            {moodKeys.map((moodKey) => {
               const count = moodStats[moodKey] ?? 0;
               const pct = dates.length ? Math.round((count / dates.length) * 100) : 0;
               return (
@@ -284,7 +348,50 @@ export function SwitchableCalendar({
         </div>
       )}
 
+      {viewType === "checkin" && (
+        <div className="mt-6 rounded-lg bg-brand-50 p-4 ring-1 ring-brand-100">
+          <p className="mb-3 text-sm font-bold text-slate-700">本月打卡统计</p>
+          <div className="grid grid-cols-3 gap-2">
+            <StatTile label="完成" value={`${checkinStats.checked}`} />
+            <StatTile label="补打卡" value={`${checkinStats.makeup}`} />
+            <StatTile label="漏打" value={`${checkinStats.missed}`} />
+          </div>
+          <div className="mt-3 rounded-lg bg-white px-3 py-3 ring-1 ring-brand-100">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-bold text-slate-700">完成率</span>
+              <span className="font-black text-brand-700">
+                {checkinStats.total > 0
+                  ? Math.round((checkinStats.checked / checkinStats.total) * 100)
+                  : 0}
+                %
+              </span>
+            </div>
+            <div className="mt-2 h-2 rounded-full bg-slate-200">
+              <div
+                className="h-2 rounded-full bg-brand-600"
+                style={{
+                  width: `${
+                    checkinStats.total > 0
+                      ? Math.round((checkinStats.checked / checkinStats.total) * 100)
+                      : 0
+                  }%`
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
     </section>
+  );
+}
+
+function StatTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-white px-3 py-3 text-center ring-1 ring-brand-100">
+      <p className="text-xs font-bold text-slate-500">{label}</p>
+      <p className="mt-1 text-lg font-black text-slate-950">{value}</p>
+    </div>
   );
 }
 

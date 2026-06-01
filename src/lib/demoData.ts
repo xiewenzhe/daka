@@ -1,5 +1,6 @@
 import type {
   Checkin,
+  DailyMood,
   EncouragementMessage,
   EncouragementType,
   Feedback,
@@ -16,6 +17,7 @@ const DEMO_NOTIFICATIONS_KEY = "daka_demo_admin_notifications";
 const DEMO_FEEDBACKS_KEY = "daka_demo_feedbacks";
 const DEMO_ENCOURAGEMENTS_KEY = "daka_demo_encouragements";
 const DEMO_PAUSE_DAYS_KEY = "daka_demo_pause_days";
+const DEMO_DAILY_MOODS_KEY = "daka_demo_daily_moods";
 const DEMO_PASSWORD = "526120";
 
 const defaultScheduleSeeds = [
@@ -431,6 +433,57 @@ export function removeDemoPauseDay(userId: string, pauseDate: string) {
   );
 }
 
+export function getDemoDailyMoods(userId: string, dateFrom?: string, dateTo?: string) {
+  return readDemoDailyMoods().filter((dailyMood) => {
+    if (dailyMood.user_id !== userId) {
+      return false;
+    }
+
+    if (dateFrom && dailyMood.mood_date < dateFrom) {
+      return false;
+    }
+
+    if (dateTo && dailyMood.mood_date > dateTo) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+export function saveDemoDailyMood(userId: string, moodDate: string, mood: string) {
+  const now = new Date().toISOString();
+  const dailyMoods = readDemoDailyMoods();
+  const existing = dailyMoods.find(
+    (dailyMood) => dailyMood.user_id === userId && dailyMood.mood_date === moodDate
+  );
+  const next: DailyMood = {
+    id: existing?.id ?? `demo-daily-mood-${userId}-${moodDate}`,
+    user_id: userId,
+    mood_date: moodDate,
+    mood,
+    created_at: existing?.created_at ?? now,
+    updated_at: now
+  };
+
+  writeDemoDailyMoods([
+    next,
+    ...dailyMoods.filter(
+      (dailyMood) =>
+        !(dailyMood.user_id === userId && dailyMood.mood_date === moodDate)
+    )
+  ]);
+
+  return next;
+}
+
+export function getDemoDailyMood(userId: string, moodDate: string) {
+  return (
+    getDemoDailyMoods(userId).find((dailyMood) => dailyMood.mood_date === moodDate) ??
+    null
+  );
+}
+
 export function getDemoEncouragementMessages(patientId = demoPatientProfile.id) {
   return readDemoEncouragementMessages().filter(
     (message) => message.patient_id === patientId
@@ -444,7 +497,7 @@ export function createDemoEncouragementMessage(
 ) {
   const now = new Date().toISOString();
   const next: EncouragementMessage = {
-    id: `demo-encouragement-${Date.now()}`,
+    id: `demo-encouragement-${crypto.randomUUID()}`,
     patient_id: patientId,
     type,
     content: content.trim(),
@@ -628,6 +681,24 @@ function readDemoPauseDays(): PauseDay[] {
 
 function writeDemoPauseDays(pauseDays: PauseDay[]) {
   localStorage.setItem(DEMO_PAUSE_DAYS_KEY, JSON.stringify(pauseDays));
+}
+
+function readDemoDailyMoods(): DailyMood[] {
+  const raw = localStorage.getItem(DEMO_DAILY_MOODS_KEY);
+
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    return JSON.parse(raw) as DailyMood[];
+  } catch {
+    return [];
+  }
+}
+
+function writeDemoDailyMoods(dailyMoods: DailyMood[]) {
+  localStorage.setItem(DEMO_DAILY_MOODS_KEY, JSON.stringify(dailyMoods));
 }
 
 function readDemoEncouragementMessages(): EncouragementMessage[] {

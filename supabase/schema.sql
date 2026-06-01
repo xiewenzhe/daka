@@ -136,6 +136,19 @@ create table if not exists public.pause_days (
   unique(user_id, pause_date)
 );
 
+create table if not exists public.daily_moods (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  mood_date date not null,
+  mood text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(user_id, mood_date),
+  constraint daily_moods_mood_not_blank_check check (
+    nullif(trim(mood), '') is not null
+  )
+);
+
 create table if not exists public.notification_tokens (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -168,6 +181,7 @@ create index if not exists feedbacks_admin_created_idx on public.feedbacks(admin
 create index if not exists feedbacks_patient_created_idx on public.feedbacks(patient_id, created_at desc);
 create index if not exists encouragement_messages_patient_type_idx on public.encouragement_messages(patient_id, type, enabled);
 create index if not exists pause_days_user_date_idx on public.pause_days(user_id, pause_date desc);
+create index if not exists daily_moods_user_date_idx on public.daily_moods(user_id, mood_date desc);
 
 create or replace function public.validate_checkin_rules()
 returns trigger
@@ -267,6 +281,7 @@ alter table public.admin_notifications enable row level security;
 alter table public.feedbacks enable row level security;
 alter table public.encouragement_messages enable row level security;
 alter table public.pause_days enable row level security;
+alter table public.daily_moods enable row level security;
 
 drop policy if exists "profiles_select_own_or_linked_patient" on public.profiles;
 create policy "profiles_select_own_or_linked_patient"
@@ -519,6 +534,28 @@ on public.pause_days
 for delete
 to authenticated
 using (user_id = auth.uid());
+
+drop policy if exists "daily_moods_select_own_or_linked_patient" on public.daily_moods;
+create policy "daily_moods_select_own_or_linked_patient"
+on public.daily_moods
+for select
+to authenticated
+using (public.can_access_patient(user_id));
+
+drop policy if exists "daily_moods_insert_own" on public.daily_moods;
+create policy "daily_moods_insert_own"
+on public.daily_moods
+for insert
+to authenticated
+with check (user_id = auth.uid());
+
+drop policy if exists "daily_moods_update_own" on public.daily_moods;
+create policy "daily_moods_update_own"
+on public.daily_moods
+for update
+to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
 
 insert into storage.buckets (id, name, public)
 values ('checkin-photos', 'checkin-photos', true)

@@ -11,6 +11,7 @@ import { EncouragementManager } from "@/components/EncouragementManager";
 import { WeeklyStatsSummary } from "@/components/WeeklyStatsSummary";
 import { buildAdminAnalysis } from "@/lib/analytics";
 import type { AdminAnalysis } from "@/lib/analytics";
+import { defaultEncouragements } from "@/lib/encouragement";
 import {
   formatChineseDate,
   getLocalDateString,
@@ -124,7 +125,13 @@ export default function AdminPage() {
       );
       setNotifications(getDemoAdminNotifications().slice(0, 10));
       setFeedbacks(getDemoFeedbacks().slice(0, 10));
-      setEncouragements(getDemoEncouragementMessages(demoPatientProfile.id));
+      const demoEncouragements = getDemoEncouragementMessages(demoPatientProfile.id);
+      if (demoEncouragements.length === 0) {
+        seedDemoDefaultEncouragements(demoPatientProfile.id);
+        setEncouragements(getDemoEncouragementMessages(demoPatientProfile.id));
+      } else {
+        setEncouragements(demoEncouragements);
+      }
       setIsLoading(false);
       return;
     }
@@ -255,7 +262,12 @@ export default function AdminPage() {
     );
     setNotifications(notificationsData ?? []);
     setFeedbacks(feedbacksData ?? []);
-    setEncouragements(encouragementsData ?? []);
+    if ((encouragementsData ?? []).length === 0) {
+      const seeded = await seedSupabaseDefaultEncouragements(patientProfile.id);
+      setEncouragements(seeded);
+    } else {
+      setEncouragements(encouragementsData ?? []);
+    }
     setIsLoading(false);
   }
 
@@ -293,83 +305,107 @@ export default function AdminPage() {
     content: string
   ) {
     if (!patient) {
-      return;
+      return false;
     }
 
     setIsSavingEncouragement(true);
     setMessage("");
 
     if (!hasSupabaseConfig) {
-      createDemoEncouragementMessage(patient.id, type, content);
+      const next = createDemoEncouragementMessage(patient.id, type, content);
+      setEncouragements((current) => [next, ...current]);
       setIsSavingEncouragement(false);
       setMessage("鼓励语已新增。");
-      await loadAdminDashboard();
-      return;
+      return true;
     }
 
-    const { error } = await supabase.from("encouragement_messages").insert({
-      patient_id: patient.id,
-      type,
-      content: content.trim(),
-      enabled: true
-    });
+    const { data, error } = await supabase
+      .from("encouragement_messages")
+      .insert({
+        patient_id: patient.id,
+        type,
+        content: content.trim(),
+        enabled: true
+      })
+      .select("*")
+      .single<EncouragementMessage>();
 
     setIsSavingEncouragement(false);
 
     if (error) {
       setMessage(error.message);
-      return;
+      return false;
     }
 
     setMessage("鼓励语已新增。");
-    await loadAdminDashboard();
+    if (data) {
+      setEncouragements((current) => [data, ...current]);
+    }
+
+    return true;
   }
 
   async function handleUpdateEncouragement(
     id: string,
-    updates: Partial<Pick<EncouragementMessage, "content" | "enabled" | "type">>
+    updates: Pick<EncouragementMessage, "content">
   ) {
-    setIsSavingEncouragement(true);
     setMessage("");
 
     if (!hasSupabaseConfig) {
-      updateDemoEncouragementMessage(id, updates);
-      setIsSavingEncouragement(false);
+      const updated = updateDemoEncouragementMessage(id, updates);
+      if (updated) {
+        setEncouragements((current) =>
+          current.map((message) => (message.id === id ? updated : message))
+        );
+      }
       setMessage("鼓励语已更新。");
-      await loadAdminDashboard();
-      return;
+      return true;
+    }
+
+    const payload: Partial<EncouragementMessage> = {
+      updated_at: new Date().toISOString()
+    };
+
+    if (updates.content !== undefined) {
+      payload.content = updates.content.trim();
     }
 
     const { error } = await supabase
       .from("encouragement_messages")
-      .update({
-        ...updates,
-        content: updates.content?.trim(),
-        updated_at: new Date().toISOString()
-      })
+      .update(payload)
       .eq("id", id);
-
-    setIsSavingEncouragement(false);
 
     if (error) {
       setMessage(error.message);
-      return;
+      return false;
     }
 
+    setEncouragements((current) =>
+      current.map((message) =>
+        message.id === id
+          ? {
+              ...message,
+              ...updates,
+              content: updates.content?.trim() ?? message.content,
+              updated_at: payload.updated_at ?? message.updated_at
+            }
+          : message
+      )
+    );
     setMessage("鼓励语已更新。");
-    await loadAdminDashboard();
+    return true;
   }
 
   async function handleDeleteEncouragement(id: string) {
-    setIsSavingEncouragement(true);
     setMessage("");
 
     if (!hasSupabaseConfig) {
       deleteDemoEncouragementMessage(id);
-      setIsSavingEncouragement(false);
+      setEncouragements((current) =>
+        current.filter((message) => message.id !== id)
+      );
       setMessage("鼓励语已删除。");
-      await loadAdminDashboard();
-      return;
+      return true;
     }
 
     const { error } = await supabase
@@ -377,15 +413,16 @@ export default function AdminPage() {
       .delete()
       .eq("id", id);
 
-    setIsSavingEncouragement(false);
-
     if (error) {
       setMessage(error.message);
-      return;
+      return false;
     }
 
+    setEncouragements((current) =>
+      current.filter((message) => message.id !== id)
+    );
     setMessage("鼓励语已删除。");
-    await loadAdminDashboard();
+    return true;
   }
 
   async function handleSignOut() {
@@ -518,4 +555,35 @@ function sortSchedules(schedules: MedicineSchedule[]) {
 
     return aIndex - bIndex;
   });
+}
+
+function getDefaultEncouragementRows(patientId: string) {
+  return Object.entries(defaultEncouragements).flatMap(([type, contents]) =>
+    contents.map((content) => ({
+      patient_id: patientId,
+      type: type as EncouragementType,
+      content,
+      enabled: true
+    }))
+  );
+}
+
+function seedDemoDefaultEncouragements(patientId: string) {
+  getDefaultEncouragementRows(patientId).forEach((message) => {
+    createDemoEncouragementMessage(patientId, message.type, message.content);
+  });
+}
+
+async function seedSupabaseDefaultEncouragements(patientId: string) {
+  const { data, error } = await supabase
+    .from("encouragement_messages")
+    .insert(getDefaultEncouragementRows(patientId))
+    .select("*")
+    .returns<EncouragementMessage[]>();
+
+  if (error) {
+    return [];
+  }
+
+  return data ?? [];
 }

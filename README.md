@@ -533,6 +533,12 @@ pm2 restart daka --update-env
 -- 复制并执行 supabase/migrations/20260531_seed_default_encouragement_messages.sql
 ```
 
+如果你要启用“每日最终心情”和心情日历，还需要执行：
+
+```sql
+-- 复制并执行 supabase/migrations/20260601_add_daily_moods.sql
+```
+
 如果你用 standalone 方式启动，并且发现页面没有样式，重新复制静态资源：
 
 ```bash

@@ -96,3 +96,12 @@ export type PauseDay = {
   reason: string | null;
   created_at: string;
 };
+
+export type DailyMood = {
+  id: string;
+  user_id: string;
+  mood_date: string;
+  mood: string;
+  created_at: string;
+  updated_at: string;
+};
