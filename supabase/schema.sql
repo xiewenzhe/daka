@@ -105,9 +105,24 @@ create table if not exists public.feedbacks (
   patient_id uuid not null references public.profiles(id) on delete cascade,
   admin_id uuid not null references public.profiles(id) on delete cascade,
   content text not null,
+  admin_reply text,
+  replied_at timestamptz,
   read_at timestamptz,
   created_at timestamptz not null default now(),
   constraint feedbacks_content_not_blank_check check (
+    nullif(trim(content), '') is not null
+  )
+);
+
+create table if not exists public.feedback_replies (
+  id uuid primary key default gen_random_uuid(),
+  feedback_id uuid not null references public.feedbacks(id) on delete cascade,
+  parent_reply_id uuid references public.feedback_replies(id) on delete set null,
+  sender_id uuid not null references public.profiles(id) on delete cascade,
+  sender_role text not null check (sender_role in ('admin', 'patient')),
+  content text not null,
+  created_at timestamptz not null default now(),
+  constraint feedback_replies_content_not_blank_check check (
     nullif(trim(content), '') is not null
   )
 );
@@ -180,6 +195,8 @@ create index if not exists checkins_schedule_date_idx on public.checkins(schedul
 create index if not exists admin_notifications_admin_created_idx on public.admin_notifications(admin_id, created_at desc);
 create index if not exists feedbacks_admin_created_idx on public.feedbacks(admin_id, created_at desc);
 create index if not exists feedbacks_patient_created_idx on public.feedbacks(patient_id, created_at desc);
+create index if not exists feedback_replies_feedback_created_idx on public.feedback_replies(feedback_id, created_at asc);
+create index if not exists feedback_replies_parent_idx on public.feedback_replies(parent_reply_id);
 create index if not exists encouragement_messages_patient_type_idx on public.encouragement_messages(patient_id, type, enabled);
 create index if not exists pause_days_user_date_idx on public.pause_days(user_id, pause_date desc);
 create index if not exists daily_moods_user_date_idx on public.daily_moods(user_id, mood_date desc);
@@ -244,6 +261,66 @@ create trigger validate_checkin_rules_before_write
 before insert or update on public.checkins
 for each row execute function public.validate_checkin_rules();
 
+create or replace function public.validate_feedback_reply_target()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target_feedback public.feedbacks%rowtype;
+  parent_reply public.feedback_replies%rowtype;
+begin
+  select *
+  into target_feedback
+  from public.feedbacks
+  where id = new.feedback_id;
+
+  if not found then
+    raise exception 'Feedback does not exist';
+  end if;
+
+  if new.sender_role = 'patient' and new.sender_id <> target_feedback.patient_id then
+    raise exception 'Patient reply sender mismatch';
+  end if;
+
+  if new.sender_role = 'admin' and new.sender_id <> target_feedback.admin_id then
+    raise exception 'Admin reply sender mismatch';
+  end if;
+
+  if new.sender_role = 'patient' and new.parent_reply_id is null then
+    raise exception 'Patient can only reply to an admin reply';
+  end if;
+
+  if new.parent_reply_id is not null then
+    select *
+    into parent_reply
+    from public.feedback_replies
+    where id = new.parent_reply_id
+      and feedback_id = new.feedback_id;
+
+    if not found then
+      raise exception 'Parent reply does not belong to this feedback';
+    end if;
+
+    if new.sender_role = 'patient' and parent_reply.sender_role <> 'admin' then
+      raise exception 'Patient can only reply to an admin reply';
+    end if;
+
+    if new.sender_role = 'admin' and parent_reply.sender_role <> 'patient' then
+      raise exception 'Admin can only reply to a patient reply';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists validate_feedback_reply_target_trigger on public.feedback_replies;
+create trigger validate_feedback_reply_target_trigger
+before insert on public.feedback_replies
+for each row execute function public.validate_feedback_reply_target();
+
 create or replace function public.current_user_role()
 returns text
 language sql
@@ -280,6 +357,7 @@ alter table public.checkins enable row level security;
 alter table public.notification_tokens enable row level security;
 alter table public.admin_notifications enable row level security;
 alter table public.feedbacks enable row level security;
+alter table public.feedback_replies enable row level security;
 alter table public.encouragement_messages enable row level security;
 alter table public.pause_days enable row level security;
 alter table public.daily_moods enable row level security;
@@ -449,6 +527,39 @@ for update
 to authenticated
 using (admin_id = auth.uid())
 with check (admin_id = auth.uid());
+
+drop policy if exists "feedback_replies_select_related" on public.feedback_replies;
+create policy "feedback_replies_select_related"
+on public.feedback_replies
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.feedbacks
+    where feedbacks.id = feedback_replies.feedback_id
+      and (feedbacks.patient_id = auth.uid() or feedbacks.admin_id = auth.uid())
+  )
+);
+
+drop policy if exists "feedback_replies_insert_related_sender" on public.feedback_replies;
+create policy "feedback_replies_insert_related_sender"
+on public.feedback_replies
+for insert
+to authenticated
+with check (
+  sender_id = auth.uid()
+  and exists (
+    select 1
+    from public.feedbacks
+    where feedbacks.id = feedback_replies.feedback_id
+      and (
+        (feedback_replies.sender_role = 'patient' and feedbacks.patient_id = auth.uid())
+        or
+        (feedback_replies.sender_role = 'admin' and feedbacks.admin_id = auth.uid())
+      )
+  )
+);
 
 drop policy if exists "encouragement_messages_select_own_or_linked" on public.encouragement_messages;
 create policy "encouragement_messages_select_own_or_linked"

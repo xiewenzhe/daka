@@ -68,7 +68,19 @@ export type Feedback = {
   patient_id: string;
   admin_id: string;
   content: string;
+  admin_reply: string | null;
+  replied_at: string | null;
   read_at: string | null;
+  created_at: string;
+};
+
+export type FeedbackReply = {
+  id: string;
+  feedback_id: string;
+  parent_reply_id: string | null;
+  sender_id: string;
+  sender_role: UserRole;
+  content: string;
   created_at: string;
 };
 

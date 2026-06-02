@@ -4,9 +4,11 @@ import type {
   EncouragementMessage,
   EncouragementType,
   Feedback,
+  FeedbackReply,
   MedicineSchedule,
   PauseDay,
-  Profile
+  Profile,
+  UserRole
 } from "@/lib/types";
 import {
   defaultEncouragements,
@@ -19,6 +21,7 @@ const DEMO_CHECKINS_KEY = "daka_demo_checkins";
 const DEMO_SCHEDULES_KEY = "daka_demo_schedules";
 const DEMO_NOTIFICATIONS_KEY = "daka_demo_admin_notifications";
 const DEMO_FEEDBACKS_KEY = "daka_demo_feedbacks";
+const DEMO_FEEDBACK_REPLIES_KEY = "daka_demo_feedback_replies";
 const DEMO_ENCOURAGEMENTS_KEY = "daka_demo_encouragements";
 const DEMO_PAUSE_DAYS_KEY = "daka_demo_pause_days";
 const DEMO_DAILY_MOODS_KEY = "daka_demo_daily_moods";
@@ -333,6 +336,8 @@ export function createDemoFeedback(patientId: string, content: string) {
     patient_id: patientId,
     admin_id: demoAdminProfile.id,
     content: trimmedContent,
+    admin_reply: null,
+    replied_at: null,
     read_at: null,
     created_at: now
   };
@@ -353,10 +358,93 @@ export function getDemoFeedbacks() {
   }
 
   try {
-    return JSON.parse(raw) as Feedback[];
+    return (JSON.parse(raw) as Feedback[]).map((feedback) => ({
+      ...feedback,
+      admin_reply: feedback.admin_reply ?? null,
+      replied_at: feedback.replied_at ?? null
+    }));
   } catch {
     return [];
   }
+}
+
+export function replyDemoFeedback(id: string, reply: string) {
+  const now = new Date().toISOString();
+  const feedbacks = getDemoFeedbacks();
+  const nextFeedbacks = feedbacks.map((feedback) =>
+    feedback.id === id
+      ? {
+          ...feedback,
+          admin_reply: reply.trim() || null,
+          replied_at: reply.trim() ? now : null
+        }
+      : feedback
+  );
+
+  localStorage.setItem(DEMO_FEEDBACKS_KEY, JSON.stringify(nextFeedbacks));
+  return nextFeedbacks.find((feedback) => feedback.id === id) ?? null;
+}
+
+export function getDemoFeedbackReplies(feedbackIds?: string[]) {
+  const raw = localStorage.getItem(DEMO_FEEDBACK_REPLIES_KEY);
+
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const replies = (JSON.parse(raw) as FeedbackReply[]).map((reply) => ({
+      ...reply,
+      parent_reply_id: reply.parent_reply_id ?? null
+    }));
+
+    if (!feedbackIds) {
+      return replies;
+    }
+
+    const idSet = new Set(feedbackIds);
+    return replies.filter((reply) => idSet.has(reply.feedback_id));
+  } catch {
+    return [];
+  }
+}
+
+export function createDemoFeedbackReply(
+  feedbackId: string,
+  senderId: string,
+  senderRole: UserRole,
+  content: string,
+  parentReplyId: string | null = null
+) {
+  const trimmedContent = content.trim();
+
+  if (!trimmedContent) {
+    return { data: null, error: "回复内容不能为空。" };
+  }
+
+  const feedback = getDemoFeedbacks().find((item) => item.id === feedbackId);
+
+  if (!feedback) {
+    return { data: null, error: "没有找到这条反馈。" };
+  }
+
+  const now = new Date().toISOString();
+  const next: FeedbackReply = {
+    id: `demo-feedback-reply-${Date.now()}`,
+    feedback_id: feedbackId,
+    parent_reply_id: parentReplyId,
+    sender_id: senderId,
+    sender_role: senderRole,
+    content: trimmedContent,
+    created_at: now
+  };
+
+  localStorage.setItem(
+    DEMO_FEEDBACK_REPLIES_KEY,
+    JSON.stringify([...getDemoFeedbackReplies(), next])
+  );
+
+  return { data: next, error: null };
 }
 
 export function updateDemoScheduleTime(scheduleId: string, reminderTime: string) {

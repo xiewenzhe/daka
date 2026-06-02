@@ -36,6 +36,10 @@ import {
   getDemoSchedules,
   updateDemoEncouragementMessage
 } from "@/lib/demoData";
+import {
+  createDemoFeedbackReply,
+  getDemoFeedbackReplies
+} from "@/lib/demoFeedbackReplies";
 import { buildWeeklyStats } from "@/lib/stats";
 import { hasSupabaseConfig, supabase } from "@/lib/supabaseClient";
 import type {
@@ -45,6 +49,7 @@ import type {
   EncouragementMessage,
   EncouragementType,
   Feedback,
+  FeedbackReply,
   MedicineSchedule,
   Profile,
   ScheduleWithCheckin,
@@ -71,8 +76,10 @@ export default function AdminPage() {
   const [analysis, setAnalysis] = useState<AdminAnalysis | null>(null);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
+  const [feedbackReplies, setFeedbackReplies] = useState<FeedbackReply[]>([]);
   const [encouragements, setEncouragements] = useState<EncouragementMessage[]>([]);
   const [isSavingEncouragement, setIsSavingEncouragement] = useState(false);
+  const [adminId, setAdminId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<
     "today" | "history" | "photos" | "messages" | "analysis" | "encouragement"
   >("today");
@@ -99,6 +106,8 @@ export default function AdminPage() {
       router.replace("/app");
       return;
     }
+
+    setAdminId(user.id);
 
     if (!hasSupabaseConfig) {
       const orderedSchedules = sortSchedules(getDemoSchedules(demoPatientProfile.id));
@@ -143,7 +152,11 @@ export default function AdminPage() {
         })
       );
       setNotifications(getDemoAdminNotifications().slice(0, 10));
-      setFeedbacks(getDemoFeedbacks().slice(0, 10));
+      const demoFeedbacks = getDemoFeedbacks().slice(0, 10);
+      setFeedbacks(demoFeedbacks);
+      setFeedbackReplies(
+        getDemoFeedbackReplies(demoFeedbacks.map((feedback) => feedback.id))
+      );
       const demoEncouragements = getDemoEncouragementMessages(demoPatientProfile.id);
       if (demoEncouragements.length === 0) {
         seedDemoDefaultEncouragements(demoPatientProfile.id);
@@ -301,7 +314,28 @@ export default function AdminPage() {
       })
     );
     setNotifications(notificationsData ?? []);
-    setFeedbacks(feedbacksData ?? []);
+    const loadedFeedbacks = feedbacksData ?? [];
+    setFeedbacks(loadedFeedbacks);
+    if (loadedFeedbacks.length > 0) {
+      const { data: feedbackRepliesData, error: feedbackRepliesError } =
+        await supabase
+          .from("feedback_replies")
+          .select("*")
+          .in(
+            "feedback_id",
+            loadedFeedbacks.map((feedback) => feedback.id)
+          )
+          .order("created_at", { ascending: true })
+          .returns<FeedbackReply[]>();
+
+      if (feedbackRepliesError) {
+        setMessage(feedbackRepliesError.message);
+      } else {
+        setFeedbackReplies(feedbackRepliesData ?? []);
+      }
+    } else {
+      setFeedbackReplies([]);
+    }
     if ((encouragementsData ?? []).length === 0) {
       const seeded = await seedSupabaseDefaultEncouragements(patientProfile.id);
       setEncouragements(normalizeEncouragementList(seeded));
@@ -473,6 +507,71 @@ export default function AdminPage() {
     return true;
   }
 
+  async function handleReplyFeedback(
+    feedbackId: string,
+    content: string,
+    parentReplyId: string | null = null
+  ) {
+    if (!adminId) {
+      return false;
+    }
+
+    const trimmedContent = content.trim();
+
+    if (!trimmedContent) {
+      setMessage("回复内容不能为空。");
+      return false;
+    }
+
+    setMessage("");
+
+    if (!hasSupabaseConfig) {
+      const { data, error } = createDemoFeedbackReply(
+        feedbackId,
+        adminId,
+        "admin",
+        trimmedContent,
+        parentReplyId
+      );
+
+      if (error) {
+        setMessage(error);
+        return false;
+      }
+
+      if (data) {
+        setFeedbackReplies((current) => [...current, data]);
+      }
+
+      setMessage("回复已发送。");
+      return true;
+    }
+
+    const { data, error } = await supabase
+      .from("feedback_replies")
+      .insert({
+        feedback_id: feedbackId,
+        parent_reply_id: parentReplyId,
+        sender_id: adminId,
+        sender_role: "admin",
+        content: trimmedContent
+      })
+      .select("*")
+      .single<FeedbackReply>();
+
+    if (error) {
+      setMessage(error.message);
+      return false;
+    }
+
+    if (data) {
+      setFeedbackReplies((current) => [...current, data]);
+    }
+
+    setMessage("回复已发送。");
+    return true;
+  }
+
   async function handleSignOut() {
     await signOutCurrentUser();
     router.replace("/login");
@@ -584,7 +683,9 @@ export default function AdminPage() {
                 <AdminNotifications notifications={notifications} />
                 <AdminFeedbacks
                   feedbacks={feedbacks}
+                  replies={feedbackReplies}
                   patientName={patient.display_name ?? "朋友"}
+                  onReply={handleReplyFeedback}
                 />
               </>
             ) : null}

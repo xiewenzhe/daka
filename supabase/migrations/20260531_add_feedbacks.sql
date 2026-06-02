@@ -3,6 +3,8 @@ create table if not exists public.feedbacks (
   patient_id uuid not null references public.profiles(id) on delete cascade,
   admin_id uuid not null references public.profiles(id) on delete cascade,
   content text not null,
+  admin_reply text,
+  replied_at timestamptz,
   read_at timestamptz,
   created_at timestamptz not null default now(),
   constraint feedbacks_content_not_blank_check check (

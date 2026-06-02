@@ -6,14 +6,23 @@ import { FeedbackBox } from "@/components/FeedbackBox";
 import { PatientHeader } from "@/components/PatientHeader";
 import { PatientNav } from "@/components/PatientNav";
 import { getCurrentProfile } from "@/lib/auth";
-import { createDemoFeedback, getDemoFeedbacks } from "@/lib/demoData";
+import { formatDateTime } from "@/lib/date";
+import {
+  createDemoFeedback,
+  getDemoFeedbacks
+} from "@/lib/demoData";
+import {
+  createDemoFeedbackReply,
+  getDemoFeedbackReplies
+} from "@/lib/demoFeedbackReplies";
 import { hasSupabaseConfig, supabase } from "@/lib/supabaseClient";
-import type { Feedback } from "@/lib/types";
+import type { Feedback, FeedbackReply } from "@/lib/types";
 
 export default function PatientFeedbackPage() {
   const router = useRouter();
   const [userId, setUserId] = useState<string | null>(null);
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
+  const [feedbackReplies, setFeedbackReplies] = useState<FeedbackReply[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
   const [message, setMessage] = useState("");
@@ -39,10 +48,12 @@ export default function PatientFeedbackPage() {
     setUserId(user.id);
 
     if (!hasSupabaseConfig) {
-      setFeedbacks(
-        getDemoFeedbacks()
-          .filter((feedback) => feedback.patient_id === user.id)
-          .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      const demoFeedbacks = getDemoFeedbacks()
+        .filter((feedback) => feedback.patient_id === user.id)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at));
+      setFeedbacks(demoFeedbacks);
+      setFeedbackReplies(
+        getDemoFeedbackReplies(demoFeedbacks.map((feedback) => feedback.id))
       );
       setIsLoading(false);
       return;
@@ -57,8 +68,31 @@ export default function PatientFeedbackPage() {
 
     if (error) {
       setMessage(error.message);
+      setIsLoading(false);
+      return;
+    }
+
+    const loadedFeedbacks = data ?? [];
+    setFeedbacks(loadedFeedbacks);
+
+    if (loadedFeedbacks.length > 0) {
+      const { data: repliesData, error: repliesError } = await supabase
+        .from("feedback_replies")
+        .select("*")
+        .in(
+          "feedback_id",
+          loadedFeedbacks.map((feedback) => feedback.id)
+        )
+        .order("created_at", { ascending: true })
+        .returns<FeedbackReply[]>();
+
+      if (repliesError) {
+        setMessage(repliesError.message);
+      } else {
+        setFeedbackReplies(repliesData ?? []);
+      }
     } else {
-      setFeedbacks(data ?? []);
+      setFeedbackReplies([]);
     }
 
     setIsLoading(false);
@@ -88,10 +122,12 @@ export default function PatientFeedbackPage() {
         return false;
       }
 
-      setFeedbacks(
-        getDemoFeedbacks()
-          .filter((feedback) => feedback.patient_id === userId)
-          .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      const demoFeedbacks = getDemoFeedbacks()
+        .filter((feedback) => feedback.patient_id === userId)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at));
+      setFeedbacks(demoFeedbacks);
+      setFeedbackReplies(
+        getDemoFeedbackReplies(demoFeedbacks.map((feedback) => feedback.id))
       );
       setMessage("建议已提交给管理员。");
       return true;
@@ -118,11 +154,11 @@ export default function PatientFeedbackPage() {
     const { data, error } = await supabase
       .from("feedbacks")
       .insert(
-      links.map((link) => ({
-        patient_id: userId,
-        admin_id: link.admin_id,
-        content: trimmedContent
-      }))
+        links.map((link) => ({
+          patient_id: userId,
+          admin_id: link.admin_id,
+          content: trimmedContent
+        }))
       )
       .select("*")
       .returns<Feedback[]>();
@@ -135,6 +171,71 @@ export default function PatientFeedbackPage() {
 
     setFeedbacks((current) => [...(data ?? []), ...current]);
     setMessage("建议已提交给管理员。");
+    return true;
+  }
+
+  async function handleReplyFeedback(
+    feedbackId: string,
+    content: string,
+    parentReplyId: string
+  ) {
+    if (!userId) {
+      return false;
+    }
+
+    const trimmedContent = content.trim();
+
+    if (!trimmedContent) {
+      setMessage("回复内容不能为空。");
+      return false;
+    }
+
+    setMessage("");
+
+    if (!hasSupabaseConfig) {
+      const { data, error } = createDemoFeedbackReply(
+        feedbackId,
+        userId,
+        "patient",
+        trimmedContent,
+        parentReplyId
+      );
+
+      if (error) {
+        setMessage(error);
+        return false;
+      }
+
+      if (data) {
+        setFeedbackReplies((current) => [...current, data]);
+      }
+
+      setMessage("回复已发送。");
+      return true;
+    }
+
+    const { data, error } = await supabase
+      .from("feedback_replies")
+      .insert({
+        feedback_id: feedbackId,
+        parent_reply_id: parentReplyId,
+        sender_id: userId,
+        sender_role: "patient",
+        content: trimmedContent
+      })
+      .select("*")
+      .single<FeedbackReply>();
+
+    if (error) {
+      setMessage(error.message);
+      return false;
+    }
+
+    if (data) {
+      setFeedbackReplies((current) => [...current, data]);
+    }
+
+    setMessage("回复已发送。");
     return true;
   }
 
@@ -160,32 +261,22 @@ export default function PatientFeedbackPage() {
         {!isLoading ? (
           <section className="mt-5 rounded-lg bg-white p-4 shadow-soft ring-1 ring-brand-100">
             <p className="text-sm font-semibold text-brand-700">历史反馈</p>
-            <h2 className="mt-1 text-lg font-bold text-slate-950">之前提交的信息</h2>
+            <h2 className="mt-1 text-lg font-bold text-slate-950">之前的对话</h2>
             {feedbacks.length === 0 ? (
               <p className="mt-3 rounded-lg bg-brand-50 px-3 py-3 text-sm text-slate-600 ring-1 ring-brand-100">
                 还没有提交过反馈。
               </p>
             ) : (
-              <div className="mt-3 space-y-2">
+              <div className="mt-3 space-y-3">
                 {feedbacks.map((feedback) => (
-                  <article
+                  <PatientFeedbackThread
                     key={feedback.id}
-                    className="rounded-lg bg-brand-50 px-3 py-3 ring-1 ring-brand-100"
-                  >
-                    <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">
-                      {feedback.content}
-                    </p>
-                    <p className="mt-2 text-xs font-semibold text-slate-500">
-                      {new Intl.DateTimeFormat("zh-CN", {
-                        year: "numeric",
-                        month: "2-digit",
-                        day: "2-digit",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        hour12: false
-                      }).format(new Date(feedback.created_at))}
-                    </p>
-                  </article>
+                    feedback={feedback}
+                    replies={feedbackReplies
+                      .filter((reply) => reply.feedback_id === feedback.id)
+                      .sort((a, b) => a.created_at.localeCompare(b.created_at))}
+                    onReply={handleReplyFeedback}
+                  />
                 ))}
               </div>
             )}
@@ -199,5 +290,170 @@ export default function PatientFeedbackPage() {
         ) : null}
       </div>
     </main>
+  );
+}
+
+function PatientFeedbackThread({
+  feedback,
+  replies,
+  onReply
+}: {
+  feedback: Feedback;
+  replies: FeedbackReply[];
+  onReply: (
+    feedbackId: string,
+    content: string,
+    parentReplyId: string
+  ) => Promise<boolean>;
+}) {
+  const [replyTargetId, setReplyTargetId] = useState<string | null>(null);
+
+  return (
+    <article className="rounded-lg bg-brand-50 px-3 py-3 ring-1 ring-brand-100">
+      <div className="rounded-lg bg-white px-3 py-3 ring-1 ring-brand-100">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm font-bold text-slate-900">我提交的反馈</p>
+          <p className="shrink-0 text-xs text-slate-500">
+            {formatDateTime(feedback.created_at)}
+          </p>
+        </div>
+        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">
+          {feedback.content}
+        </p>
+      </div>
+
+      {replies.length > 0 ? (
+        <div className="mt-3 space-y-2">
+          {replies.map((reply) => {
+            const isPatient = reply.sender_role === "patient";
+            const canReply = !isPatient;
+
+            return (
+              <div key={reply.id}>
+                <div
+                  className={`flex ${
+                    isPatient ? "justify-end" : "justify-start"
+                  }`}
+                >
+                  <div
+                    className={`max-w-[88%] rounded-lg px-3 py-2 ring-1 ${
+                      isPatient
+                        ? "bg-brand-600 text-white ring-brand-600"
+                        : "bg-white text-slate-800 ring-brand-100"
+                    }`}
+                  >
+                    <p
+                      className={`text-xs font-semibold ${
+                        isPatient ? "text-brand-50" : "text-brand-700"
+                      }`}
+                    >
+                      {isPatient ? "我" : "管理员"}
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm leading-6">
+                      {reply.content}
+                    </p>
+                    <div className="mt-1 flex items-center justify-between gap-3">
+                      {canReply ? (
+                        <button
+                          type="button"
+                          onClick={() => setReplyTargetId(reply.id)}
+                          className="text-xs font-bold text-brand-700"
+                        >
+                          回复这条
+                        </button>
+                      ) : (
+                        <span />
+                      )}
+                      <p
+                        className={`text-right text-[11px] ${
+                          isPatient ? "text-brand-50" : "text-slate-500"
+                        }`}
+                      >
+                        {formatDateTime(reply.created_at)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                {replyTargetId === reply.id ? (
+                  <InlineReplyForm
+                    placeholder="回复管理员这条消息..."
+                    onCancel={() => setReplyTargetId(null)}
+                    onSubmit={async (content) => {
+                      const ok = await onReply(feedback.id, content, reply.id);
+                      if (ok) {
+                        setReplyTargetId(null);
+                      }
+                      return ok;
+                    }}
+                  />
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function InlineReplyForm({
+  placeholder,
+  onCancel,
+  onSubmit
+}: {
+  placeholder: string;
+  onCancel: () => void;
+  onSubmit: (content: string) => Promise<boolean>;
+}) {
+  const [content, setContent] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit() {
+    const trimmedContent = content.trim();
+
+    if (!trimmedContent) {
+      setError("回复内容不能为空。");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError("");
+    const ok = await onSubmit(trimmedContent);
+    setIsSubmitting(false);
+
+    if (ok) {
+      setContent("");
+    }
+  }
+
+  return (
+    <div className="mt-2 rounded-lg bg-white p-3 ring-1 ring-brand-100">
+      <textarea
+        value={content}
+        onChange={(event) => setContent(event.target.value)}
+        rows={3}
+        placeholder={placeholder}
+        className="w-full resize-none rounded-lg border border-brand-100 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+      />
+      {error ? <p className="mt-1 text-xs text-red-600">{error}</p> : null}
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="h-10 rounded-lg bg-white text-sm font-bold text-slate-600 ring-1 ring-slate-200"
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={isSubmitting || !content.trim()}
+          className="h-10 rounded-lg bg-brand-600 px-4 text-sm font-bold text-white shadow-soft disabled:cursor-not-allowed disabled:bg-slate-300"
+        >
+          {isSubmitting ? "发送中..." : "发送回复"}
+        </button>
+      </div>
+    </div>
   );
 }
