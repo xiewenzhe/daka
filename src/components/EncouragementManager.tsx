@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   encouragementTypeLabels,
-  encouragementTypes
+  encouragementTypes,
+  getEncouragementDisplayType,
+  normalizeEncouragementList
 } from "@/lib/encouragement";
 import type { EncouragementMessage, EncouragementType } from "@/lib/types";
 
@@ -28,12 +30,16 @@ export function EncouragementManager({
   const [selectedType, setSelectedType] =
     useState<EncouragementType>("normal");
   const [newContent, setNewContent] = useState("");
+  const normalizedMessages = useMemo(
+    () => normalizeEncouragementList(messages),
+    [messages]
+  );
   const visibleMessages = useMemo(
     () =>
-      messages
-        .filter((message) => message.type === selectedType)
+      normalizedMessages
+        .filter((message) => getEncouragementDisplayType(message) === selectedType)
         .sort((a, b) => a.created_at.localeCompare(b.created_at)),
-    [messages, selectedType]
+    [normalizedMessages, selectedType]
   );
 
   async function handleCreate() {
@@ -68,7 +74,11 @@ export function EncouragementManager({
             {encouragementTypes.map((type) => (
               <option key={type} value={type}>
                 {encouragementTypeLabels[type]}（
-                {messages.filter((message) => message.type === type).length}）
+                {
+                  normalizedMessages.filter(
+                    (message) => getEncouragementDisplayType(message) === type
+                  ).length
+                }）
               </option>
             ))}
           </select>

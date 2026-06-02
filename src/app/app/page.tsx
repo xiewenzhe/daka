@@ -8,7 +8,10 @@ import { NotificationSetup } from "@/components/NotificationSetup";
 import { PatientHeader } from "@/components/PatientHeader";
 import { PatientNav } from "@/components/PatientNav";
 import { TodayCheckinList } from "@/components/TodayCheckinList";
-import { pickEncouragement } from "@/lib/encouragement";
+import {
+  normalizeEncouragementList,
+  pickEncouragement
+} from "@/lib/encouragement";
 import {
   formatClock,
   getLocalDateString,
@@ -97,7 +100,9 @@ export default function PatientAppPage() {
       }
       const checkins = getDemoCheckins(user.id, statsStartDate, today);
       const pauseDays = getDemoPauseDays(user.id, statsStartDate, today);
-      setEncouragements(getDemoEncouragementMessages(user.id));
+      setEncouragements(
+        normalizeEncouragementList(getDemoEncouragementMessages(user.id))
+      );
       setDailyMood(getDemoDailyMood(user.id, today));
       setPauseDay(getDemoPauseDay(user.id, today));
       const todayItems = mergeTodayItems(schedules, checkins, today);
@@ -177,7 +182,7 @@ export default function PatientAppPage() {
       router.replace("/app/plan");
       return;
     }
-    setEncouragements(encouragementsData ?? []);
+    setEncouragements(normalizeEncouragementList(encouragementsData ?? []));
     setDailyMood(dailyMoodData ?? null);
     setPauseDay(
       (pauseDays ?? []).find((pause) => pause.pause_date === today) ?? null
@@ -375,17 +380,17 @@ export default function PatientAppPage() {
     await loadToday();
   }
 
-  async function handleSaveDailyMood(mood: string) {
+  async function handleSaveDailyMood(mood: string, note: string) {
     if (!userId) {
-      return;
+      return false;
     }
 
     setMessage("");
 
     if (!hasSupabaseConfig) {
-      saveDemoDailyMood(userId, today, mood);
+      saveDemoDailyMood(userId, today, mood, note);
       await loadToday();
-      return;
+      return true;
     }
 
     const { error } = await supabase.from("daily_moods").upsert(
@@ -393,6 +398,7 @@ export default function PatientAppPage() {
         user_id: userId,
         mood_date: today,
         mood,
+        note: note.trim() || null,
         updated_at: new Date().toISOString()
       },
       { onConflict: "user_id,mood_date" }
@@ -400,10 +406,11 @@ export default function PatientAppPage() {
 
     if (error) {
       setMessage(error.message);
-      return;
+      return false;
     }
 
     await loadToday();
+    return true;
   }
 
   function getSuccessMessage(
@@ -513,6 +520,7 @@ export default function PatientAppPage() {
         <div className="mt-5">
           <DailyMoodSelector
             selectedMood={dailyMood?.mood ?? null}
+            selectedNote={dailyMood?.note ?? null}
             onMoodSave={handleSaveDailyMood}
             isLoading={isLoading}
           />

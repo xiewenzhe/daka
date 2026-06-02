@@ -6,12 +6,17 @@ import { useRouter } from "next/navigation";
 import { AdminAnalytics } from "@/components/AdminAnalytics";
 import { AdminFeedbacks } from "@/components/AdminFeedbacks";
 import { AdminNotifications } from "@/components/AdminNotifications";
+import { AdminPhotoGallery } from "@/components/AdminPhotoGallery";
 import { AdminTodayStatus } from "@/components/AdminTodayStatus";
 import { EncouragementManager } from "@/components/EncouragementManager";
+import { SwitchableCalendar } from "@/components/SwitchableCalendar";
 import { WeeklyStatsSummary } from "@/components/WeeklyStatsSummary";
 import { buildAdminAnalysis } from "@/lib/analytics";
 import type { AdminAnalysis } from "@/lib/analytics";
-import { defaultEncouragements } from "@/lib/encouragement";
+import {
+  defaultEncouragements,
+  normalizeEncouragementList
+} from "@/lib/encouragement";
 import {
   formatChineseDate,
   getLocalDateString,
@@ -24,6 +29,7 @@ import {
   demoPatientProfile,
   getDemoAdminNotifications,
   getDemoCheckins,
+  getDemoDailyMoods,
   getDemoEncouragementMessages,
   getDemoFeedbacks,
   getDemoPauseDays,
@@ -35,6 +41,7 @@ import { hasSupabaseConfig, supabase } from "@/lib/supabaseClient";
 import type {
   AdminNotification,
   Checkin,
+  DailyMood,
   EncouragementMessage,
   EncouragementType,
   Feedback,
@@ -58,13 +65,16 @@ export default function AdminPage() {
   const [patient, setPatient] = useState<Profile | null>(null);
   const [todayItems, setTodayItems] = useState<ScheduleWithCheckin[]>([]);
   const [weeklyStats, setWeeklyStats] = useState<WeeklyStats | null>(null);
+  const [schedules, setSchedules] = useState<MedicineSchedule[]>([]);
+  const [historyCheckins, setHistoryCheckins] = useState<Checkin[]>([]);
+  const [historyMoods, setHistoryMoods] = useState<DailyMood[]>([]);
   const [analysis, setAnalysis] = useState<AdminAnalysis | null>(null);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [encouragements, setEncouragements] = useState<EncouragementMessage[]>([]);
   const [isSavingEncouragement, setIsSavingEncouragement] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "today" | "messages" | "analysis" | "encouragement"
+    "today" | "history" | "photos" | "messages" | "analysis" | "encouragement"
   >("today");
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -100,9 +110,15 @@ export default function AdminPage() {
         demoPatientProfile.created_at.slice(0, 10) > last30Days[0]
           ? demoPatientProfile.created_at.slice(0, 10)
           : last30Days[0];
+      const historyStartDate = demoPatientProfile.created_at.slice(0, 10);
       const checkins = getDemoCheckins(
         demoPatientProfile.id,
-        analysisStartDate,
+        historyStartDate,
+        today
+      );
+      const dailyMoods = getDemoDailyMoods(
+        demoPatientProfile.id,
+        historyStartDate,
         today
       );
       const pauseDays = getDemoPauseDays(
@@ -110,6 +126,9 @@ export default function AdminPage() {
         analysisStartDate,
         today
       );
+      setSchedules(orderedSchedules);
+      setHistoryCheckins(checkins);
+      setHistoryMoods(dailyMoods);
       buildDashboard(
         demoPatientProfile,
         orderedSchedules,
@@ -128,9 +147,13 @@ export default function AdminPage() {
       const demoEncouragements = getDemoEncouragementMessages(demoPatientProfile.id);
       if (demoEncouragements.length === 0) {
         seedDemoDefaultEncouragements(demoPatientProfile.id);
-        setEncouragements(getDemoEncouragementMessages(demoPatientProfile.id));
+        setEncouragements(
+          normalizeEncouragementList(
+            getDemoEncouragementMessages(demoPatientProfile.id)
+          )
+        );
       } else {
-        setEncouragements(demoEncouragements);
+        setEncouragements(normalizeEncouragementList(demoEncouragements));
       }
       setIsLoading(false);
       return;
@@ -218,16 +241,18 @@ export default function AdminPage() {
       patientProfile.created_at.slice(0, 10) > last30Days[0]
         ? patientProfile.created_at.slice(0, 10)
         : last30Days[0];
+    const historyStartDate = patientProfile.created_at.slice(0, 10);
 
     const [
       { data: checkins, error: checkinsError },
-      { data: pauseDays, error: pauseDaysError }
+      { data: pauseDays, error: pauseDaysError },
+      { data: dailyMoods, error: dailyMoodsError }
     ] = await Promise.all([
       supabase
         .from("checkins")
         .select("*")
         .eq("user_id", link.patient_id)
-        .gte("checkin_date", analysisStartDate)
+        .gte("checkin_date", historyStartDate)
         .lte("checkin_date", today)
         .returns<Checkin[]>(),
       supabase
@@ -236,17 +261,32 @@ export default function AdminPage() {
         .eq("user_id", link.patient_id)
         .gte("pause_date", analysisStartDate)
         .lte("pause_date", today)
-        .returns<Array<{ pause_date: string }>>()
+        .returns<Array<{ pause_date: string }>>(),
+      supabase
+        .from("daily_moods")
+        .select("*")
+        .eq("user_id", link.patient_id)
+        .gte("mood_date", historyStartDate)
+        .lte("mood_date", today)
+        .returns<DailyMood[]>()
     ]);
 
-    if (checkinsError || pauseDaysError) {
-      setMessage(checkinsError?.message ?? pauseDaysError?.message ?? "读取失败");
+    if (checkinsError || pauseDaysError || dailyMoodsError) {
+      setMessage(
+        checkinsError?.message ??
+          pauseDaysError?.message ??
+          dailyMoodsError?.message ??
+          "读取失败"
+      );
       setIsLoading(false);
       return;
     }
 
     const orderedSchedules = sortSchedules(schedules ?? []);
     const pauseDates = (pauseDays ?? []).map((pause) => pause.pause_date);
+    setSchedules(orderedSchedules);
+    setHistoryCheckins(checkins ?? []);
+    setHistoryMoods(dailyMoods ?? []);
     buildDashboard(
       patientProfile,
       orderedSchedules,
@@ -264,9 +304,9 @@ export default function AdminPage() {
     setFeedbacks(feedbacksData ?? []);
     if ((encouragementsData ?? []).length === 0) {
       const seeded = await seedSupabaseDefaultEncouragements(patientProfile.id);
-      setEncouragements(seeded);
+      setEncouragements(normalizeEncouragementList(seeded));
     } else {
-      setEncouragements(encouragementsData ?? []);
+      setEncouragements(normalizeEncouragementList(encouragementsData ?? []));
     }
     setIsLoading(false);
   }
@@ -313,7 +353,9 @@ export default function AdminPage() {
 
     if (!hasSupabaseConfig) {
       const next = createDemoEncouragementMessage(patient.id, type, content);
-      setEncouragements((current) => [next, ...current]);
+      setEncouragements((current) =>
+        normalizeEncouragementList([next, ...current])
+      );
       setIsSavingEncouragement(false);
       setMessage("鼓励语已新增。");
       return true;
@@ -339,7 +381,9 @@ export default function AdminPage() {
 
     setMessage("鼓励语已新增。");
     if (data) {
-      setEncouragements((current) => [data, ...current]);
+      setEncouragements((current) =>
+        normalizeEncouragementList([data, ...current])
+      );
     }
 
     return true;
@@ -355,7 +399,9 @@ export default function AdminPage() {
       const updated = updateDemoEncouragementMessage(id, updates);
       if (updated) {
         setEncouragements((current) =>
-          current.map((message) => (message.id === id ? updated : message))
+          normalizeEncouragementList(
+            current.map((message) => (message.id === id ? updated : message))
+          )
         );
       }
       setMessage("鼓励语已更新。");
@@ -381,15 +427,17 @@ export default function AdminPage() {
     }
 
     setEncouragements((current) =>
-      current.map((message) =>
-        message.id === id
-          ? {
-              ...message,
-              ...updates,
-              content: updates.content?.trim() ?? message.content,
-              updated_at: payload.updated_at ?? message.updated_at
-            }
-          : message
+      normalizeEncouragementList(
+        current.map((message) =>
+          message.id === id
+            ? {
+                ...message,
+                ...updates,
+                content: updates.content?.trim() ?? message.content,
+                updated_at: payload.updated_at ?? message.updated_at
+              }
+            : message
+        )
       )
     );
     setMessage("鼓励语已更新。");
@@ -468,9 +516,11 @@ export default function AdminPage() {
         </button>
       </nav>
 
-      <div className="mt-3 grid grid-cols-4 gap-2">
+      <div className="mt-3 grid grid-cols-3 gap-2">
         {[
           ["today", "今日"],
+          ["history", "历史"],
+          ["photos", "照片"],
           ["messages", "消息"],
           ["analysis", "分析"],
           ["encouragement", "鼓励语"]
@@ -479,7 +529,15 @@ export default function AdminPage() {
             key={key}
             type="button"
             onClick={() =>
-              setActiveTab(key as "today" | "messages" | "analysis" | "encouragement")
+              setActiveTab(
+                key as
+                  | "today"
+                  | "history"
+                  | "photos"
+                  | "messages"
+                  | "analysis"
+                  | "encouragement"
+              )
             }
             className={`h-10 rounded-lg px-2 text-sm font-bold ring-1 ${
               activeTab === key
@@ -504,6 +562,21 @@ export default function AdminPage() {
                 patientName={patient.display_name ?? "朋友"}
                 checkinDate={today}
                 items={todayItems}
+              />
+            ) : null}
+            {activeTab === "history" ? (
+              <SwitchableCalendar
+                schedules={schedules}
+                checkins={historyCheckins}
+                dailyMoods={historyMoods}
+                startDate={patient.created_at.slice(0, 10)}
+                calendarType="checkin"
+              />
+            ) : null}
+            {activeTab === "photos" ? (
+              <AdminPhotoGallery
+                checkins={historyCheckins}
+                schedules={schedules}
               />
             ) : null}
             {activeTab === "messages" ? (

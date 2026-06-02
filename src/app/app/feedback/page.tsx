@@ -6,12 +6,14 @@ import { FeedbackBox } from "@/components/FeedbackBox";
 import { PatientHeader } from "@/components/PatientHeader";
 import { PatientNav } from "@/components/PatientNav";
 import { getCurrentProfile } from "@/lib/auth";
-import { createDemoFeedback } from "@/lib/demoData";
+import { createDemoFeedback, getDemoFeedbacks } from "@/lib/demoData";
 import { hasSupabaseConfig, supabase } from "@/lib/supabaseClient";
+import type { Feedback } from "@/lib/types";
 
 export default function PatientFeedbackPage() {
   const router = useRouter();
   const [userId, setUserId] = useState<string | null>(null);
+  const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
   const [message, setMessage] = useState("");
@@ -35,6 +37,30 @@ export default function PatientFeedbackPage() {
     }
 
     setUserId(user.id);
+
+    if (!hasSupabaseConfig) {
+      setFeedbacks(
+        getDemoFeedbacks()
+          .filter((feedback) => feedback.patient_id === user.id)
+          .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      );
+      setIsLoading(false);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("feedbacks")
+      .select("*")
+      .eq("patient_id", user.id)
+      .order("created_at", { ascending: false })
+      .returns<Feedback[]>();
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      setFeedbacks(data ?? []);
+    }
+
     setIsLoading(false);
   }
 
@@ -62,6 +88,11 @@ export default function PatientFeedbackPage() {
         return false;
       }
 
+      setFeedbacks(
+        getDemoFeedbacks()
+          .filter((feedback) => feedback.patient_id === userId)
+          .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      );
       setMessage("建议已提交给管理员。");
       return true;
     }
@@ -84,13 +115,17 @@ export default function PatientFeedbackPage() {
       return false;
     }
 
-    const { error } = await supabase.from("feedbacks").insert(
+    const { data, error } = await supabase
+      .from("feedbacks")
+      .insert(
       links.map((link) => ({
         patient_id: userId,
         admin_id: link.admin_id,
         content: trimmedContent
       }))
-    );
+      )
+      .select("*")
+      .returns<Feedback[]>();
     setIsSubmittingFeedback(false);
 
     if (error) {
@@ -98,6 +133,7 @@ export default function PatientFeedbackPage() {
       return false;
     }
 
+    setFeedbacks((current) => [...(data ?? []), ...current]);
     setMessage("建议已提交给管理员。");
     return true;
   }
@@ -120,6 +156,41 @@ export default function PatientFeedbackPage() {
             />
           )}
         </div>
+
+        {!isLoading ? (
+          <section className="mt-5 rounded-lg bg-white p-4 shadow-soft ring-1 ring-brand-100">
+            <p className="text-sm font-semibold text-brand-700">历史反馈</p>
+            <h2 className="mt-1 text-lg font-bold text-slate-950">之前提交的信息</h2>
+            {feedbacks.length === 0 ? (
+              <p className="mt-3 rounded-lg bg-brand-50 px-3 py-3 text-sm text-slate-600 ring-1 ring-brand-100">
+                还没有提交过反馈。
+              </p>
+            ) : (
+              <div className="mt-3 space-y-2">
+                {feedbacks.map((feedback) => (
+                  <article
+                    key={feedback.id}
+                    className="rounded-lg bg-brand-50 px-3 py-3 ring-1 ring-brand-100"
+                  >
+                    <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">
+                      {feedback.content}
+                    </p>
+                    <p className="mt-2 text-xs font-semibold text-slate-500">
+                      {new Intl.DateTimeFormat("zh-CN", {
+                        year: "numeric",
+                        month: "2-digit",
+                        day: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        hour12: false
+                      }).format(new Date(feedback.created_at))}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : null}
 
         {message ? (
           <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800 ring-1 ring-amber-200">

@@ -3,6 +3,7 @@ create table if not exists public.daily_moods (
   user_id uuid not null references public.profiles(id) on delete cascade,
   mood_date date not null,
   mood text not null,
+  note text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique(user_id, mood_date),

@@ -1,5 +1,7 @@
 import type { EncouragementMessage, EncouragementType } from "@/lib/types";
 
+const defaultEncouragementTypeByContent = new Map<string, EncouragementType>();
+
 export const defaultEncouragements: Record<EncouragementType, string[]> = {
   normal: [
     "今天也按时完成啦，嘉嘉棒棒棒！",
@@ -41,16 +43,55 @@ export const encouragementTypes: EncouragementType[] = [
   "streak_14"
 ];
 
+Object.entries(defaultEncouragements).forEach(([type, contents]) => {
+  contents.forEach((content) => {
+    defaultEncouragementTypeByContent.set(
+      normalizeEncouragementContent(content),
+      type as EncouragementType
+    );
+  });
+});
+
+export function getEncouragementDisplayType(message: EncouragementMessage) {
+  return (
+    defaultEncouragementTypeByContent.get(
+      normalizeEncouragementContent(message.content)
+    ) ?? message.type
+  );
+}
+
+export function normalizeEncouragementList(messages: EncouragementMessage[]) {
+  const seen = new Set<string>();
+
+  return messages.filter((message) => {
+    const displayType = getEncouragementDisplayType(message);
+    const key = `${message.patient_id}:${displayType}:${normalizeEncouragementContent(
+      message.content
+    )}`;
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
 export function pickEncouragement(
   type: EncouragementType,
   customMessages: EncouragementMessage[] = []
 ) {
-  const custom = customMessages
-    .filter((message) => message.type === type)
+  const custom = normalizeEncouragementList(customMessages)
+    .filter((message) => getEncouragementDisplayType(message) === type)
     .map((message) => message.content.trim())
     .filter(Boolean);
 
   const pool = custom.length > 0 ? custom : defaultEncouragements[type];
 
   return pool[Math.floor(Math.random() * pool.length)] ?? "";
+}
+
+function normalizeEncouragementContent(content: string) {
+  return content.trim().replace(/\s+/g, " ");
 }

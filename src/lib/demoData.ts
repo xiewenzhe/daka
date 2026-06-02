@@ -8,7 +8,11 @@ import type {
   PauseDay,
   Profile
 } from "@/lib/types";
-import { defaultEncouragements } from "@/lib/encouragement";
+import {
+  defaultEncouragements,
+  getEncouragementDisplayType,
+  normalizeEncouragementList
+} from "@/lib/encouragement";
 
 const DEMO_SESSION_KEY = "daka_demo_account";
 const DEMO_CHECKINS_KEY = "daka_demo_checkins";
@@ -451,7 +455,12 @@ export function getDemoDailyMoods(userId: string, dateFrom?: string, dateTo?: st
   });
 }
 
-export function saveDemoDailyMood(userId: string, moodDate: string, mood: string) {
+export function saveDemoDailyMood(
+  userId: string,
+  moodDate: string,
+  mood: string,
+  note?: string | null
+) {
   const now = new Date().toISOString();
   const dailyMoods = readDemoDailyMoods();
   const existing = dailyMoods.find(
@@ -462,6 +471,7 @@ export function saveDemoDailyMood(userId: string, moodDate: string, mood: string
     user_id: userId,
     mood_date: moodDate,
     mood,
+    note: note?.trim() || null,
     created_at: existing?.created_at ?? now,
     updated_at: now
   };
@@ -485,8 +495,10 @@ export function getDemoDailyMood(userId: string, moodDate: string) {
 }
 
 export function getDemoEncouragementMessages(patientId = demoPatientProfile.id) {
-  return readDemoEncouragementMessages().filter(
-    (message) => message.patient_id === patientId
+  return normalizeEncouragementList(
+    repairDemoEncouragementMessages().filter(
+      (message) => message.patient_id === patientId
+    )
   );
 }
 
@@ -691,7 +703,10 @@ function readDemoDailyMoods(): DailyMood[] {
   }
 
   try {
-    return JSON.parse(raw) as DailyMood[];
+    return (JSON.parse(raw) as DailyMood[]).map((dailyMood) => ({
+      ...dailyMood,
+      note: dailyMood.note ?? null
+    }));
   } catch {
     return [];
   }
@@ -699,6 +714,23 @@ function readDemoDailyMoods(): DailyMood[] {
 
 function writeDemoDailyMoods(dailyMoods: DailyMood[]) {
   localStorage.setItem(DEMO_DAILY_MOODS_KEY, JSON.stringify(dailyMoods));
+}
+
+function repairDemoEncouragementMessages() {
+  const messages = readDemoEncouragementMessages();
+  const repaired = normalizeEncouragementList(
+    messages.map((message) => ({
+      ...message,
+      type: getEncouragementDisplayType(message),
+      content: message.content.trim()
+    }))
+  );
+
+  if (JSON.stringify(messages) !== JSON.stringify(repaired)) {
+    writeDemoEncouragementMessages(repaired);
+  }
+
+  return repaired;
 }
 
 function readDemoEncouragementMessages(): EncouragementMessage[] {

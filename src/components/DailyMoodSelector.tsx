@@ -4,24 +4,38 @@ import { useEffect, useState } from "react";
 
 type DailyMoodSelectorProps = {
   selectedMood: string | null;
-  onMoodSave: (mood: string) => Promise<void>;
+  selectedNote?: string | null;
+  onMoodSave: (mood: string, note: string) => Promise<boolean>;
   isLoading?: boolean;
 };
 
-const moodOptions = ["开心 😊", "正常 🙂", "有点累 😴", "烦躁 😠"];
+const moodOptions = [
+  "超乖 🥰",
+  "开心 😊",
+  "正常 🙂",
+  "有点累 😴",
+  "烦躁 😠",
+  "哭哭 😭"
+];
 
 export function DailyMoodSelector({
   selectedMood,
+  selectedNote,
   onMoodSave,
   isLoading
 }: DailyMoodSelectorProps) {
   const [draftMood, setDraftMood] = useState(selectedMood ?? "");
+  const [draftNote, setDraftNote] = useState(selectedNote ?? "");
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     setDraftMood(selectedMood ?? "");
   }, [selectedMood]);
+
+  useEffect(() => {
+    setDraftNote(selectedNote ?? "");
+  }, [selectedNote]);
 
   const handleMoodSave = async () => {
     if (!draftMood) {
@@ -31,9 +45,12 @@ export function DailyMoodSelector({
 
     setIsSaving(true);
     setMessage("");
-    await onMoodSave(draftMood);
+    const isSuccess = await onMoodSave(draftMood, draftNote);
     setIsSaving(false);
-    setMessage("今日心情已保存。");
+
+    if (isSuccess) {
+      setMessage("今日心情已保存。");
+    }
   };
 
   return (
@@ -56,6 +73,20 @@ export function DailyMoodSelector({
           </button>
         ))}
       </div>
+      <label className="mt-3 block">
+        <span className="text-xs font-bold text-slate-600">随心记</span>
+        <textarea
+          value={draftNote}
+          onChange={(event) => setDraftNote(event.target.value)}
+          rows={3}
+          maxLength={300}
+          placeholder="可以记一点今天的小事、心情变化，或者想说的话。"
+          className="mt-1 w-full resize-none rounded-lg border border-brand-100 bg-brand-50 px-3 py-3 text-sm leading-6 text-slate-900 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100"
+        />
+        <span className="mt-1 block text-right text-xs text-slate-400">
+          {draftNote.length}/300
+        </span>
+      </label>
       <button
         type="button"
         disabled={isLoading || isSaving || !draftMood}

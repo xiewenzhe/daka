@@ -102,6 +102,7 @@ export type DailyMood = {
   user_id: string;
   mood_date: string;
   mood: string;
+  note: string | null;
   created_at: string;
   updated_at: string;
 };
