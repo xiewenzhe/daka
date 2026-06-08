@@ -7,7 +7,7 @@ import {
   formatChineseMonth,
   getScheduleRuntimeStatus
 } from "@/lib/date";
-import type { Checkin, DailyMood, MedicineSchedule } from "@/lib/types";
+import type { Checkin, DailyMood, MedicineSchedule, PauseDay } from "@/lib/types";
 
 const moodEmojis: Record<string, string> = {
   "超乖 🥰": "🥰",
@@ -40,6 +40,7 @@ type SwitchableCalendarProps = {
   schedules: MedicineSchedule[];
   checkins: Checkin[];
   dailyMoods?: DailyMood[];
+  pauseDays?: PauseDay[];
   startDate?: string | null;
   calendarType?: "checkin" | "mood";
 };
@@ -48,6 +49,7 @@ export function SwitchableCalendar({
   schedules,
   checkins,
   dailyMoods = [],
+  pauseDays = [],
   startDate,
   calendarType = "checkin"
 }: SwitchableCalendarProps) {
@@ -80,6 +82,11 @@ export function SwitchableCalendar({
         ])
       ),
     [checkins]
+  );
+
+  const pauseByDate = useMemo(
+    () => new Map(pauseDays.map((pauseDay) => [pauseDay.pause_date, pauseDay])),
+    [pauseDays]
   );
 
   const moodByDate = useMemo(() => {
@@ -134,8 +141,9 @@ export function SwitchableCalendar({
 
     dates.forEach((date) => {
       const isBeforeStart = Boolean(startDate && date < startDate);
+      const isPaused = pauseByDate.has(date);
 
-      if (isBeforeStart) {
+      if (isBeforeStart || isPaused) {
         return;
       }
 
@@ -169,7 +177,7 @@ export function SwitchableCalendar({
     });
 
     return stats;
-  }, [checkinByDateSchedule, dates, orderedSchedules, startDate]);
+  }, [checkinByDateSchedule, dates, orderedSchedules, pauseByDate, startDate]);
 
   const handlePrevMonth = () => {
     const [year, monthNum] = month.split("-").map(Number);
@@ -316,9 +324,11 @@ export function SwitchableCalendar({
           }
 
           // 打卡日历视图
+          const pauseDay = pauseByDate.get(date);
+          const isPaused = Boolean(pauseDay);
           const segments = orderedSchedules.map((schedule) => {
             const checkin = checkinByDateSchedule.get(`${date}:${schedule.id}`);
-            const status = isBeforeStart
+            const status = isBeforeStart || isPaused
               ? "not_due"
               : getScheduleRuntimeStatus(date, schedule.reminder_time, checkin);
 
@@ -339,6 +349,8 @@ export function SwitchableCalendar({
                 className={`relative h-10 w-10 overflow-hidden rounded-full ring-1 ${
                   isBeforeStart
                     ? "bg-slate-100 opacity-50 ring-slate-200"
+                    : isPaused
+                      ? "bg-amber-50 ring-amber-300"
                     : selectedDate === date
                       ? "ring-2 ring-brand-700 bg-slate-100"
                     : isToday
@@ -347,11 +359,21 @@ export function SwitchableCalendar({
                 }`}
                 title={date}
               >
-                <div className="absolute inset-0 flex flex-col">
-                  {segments.map((segment) => (
-                    <div key={segment.id} className={`min-h-0 flex-1 ${segment.className}`} />
-                  ))}
-                </div>
+                {isPaused ? (
+                  <div
+                    className="absolute inset-0"
+                    style={{
+                      backgroundImage:
+                        "repeating-linear-gradient(135deg, transparent 0, transparent 6px, #f59e0b 6px, #f59e0b 9px)"
+                    }}
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex flex-col">
+                    {segments.map((segment) => (
+                      <div key={segment.id} className={`min-h-0 flex-1 ${segment.className}`} />
+                    ))}
+                  </div>
+                )}
                 <span className="absolute inset-0 flex items-center justify-center text-xs font-black text-slate-900">
                   {Number(date.slice(-2))}
                 </span>
@@ -437,6 +459,7 @@ export function SwitchableCalendar({
               date={selectedDate}
               schedules={orderedSchedules}
               checkinByDateSchedule={checkinByDateSchedule}
+              pauseDay={pauseByDate.get(selectedDate)}
               startDate={startDate}
             />
           )}
@@ -519,11 +542,13 @@ function CheckinDayDetail({
   date,
   schedules,
   checkinByDateSchedule,
+  pauseDay,
   startDate
 }: {
   date: string;
   schedules: MedicineSchedule[];
   checkinByDateSchedule: Map<string, Checkin>;
+  pauseDay?: PauseDay;
   startDate?: string | null;
 }) {
   const isBeforeStart = Boolean(startDate && date < startDate);
@@ -534,6 +559,16 @@ function CheckinDayDetail({
         <p className="mt-3 rounded-lg bg-white px-3 py-3 text-sm text-slate-600 ring-1 ring-brand-100">
           这一天网站还没有开始使用。
         </p>
+      ) : pauseDay ? (
+        <div className="mt-3 rounded-lg bg-white px-3 py-3 ring-1 ring-amber-200">
+          <p className="text-sm font-black text-amber-700">暂停打卡</p>
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+            {pauseDay.reason?.trim() || "这一天设置了暂停，未填写原因。"}
+          </p>
+          <p className="mt-2 text-xs font-semibold text-slate-500">
+            暂停日不计入漏打卡和完成率。
+          </p>
+        </div>
       ) : (
         <div className="mt-3 space-y-2">
           {schedules.map((schedule) => {

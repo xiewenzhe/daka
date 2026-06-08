@@ -37,6 +37,7 @@ export default function PatientStatsPage() {
   const [schedules, setSchedules] = useState<MedicineSchedule[]>([]);
   const [monthCheckins, setMonthCheckins] = useState<Checkin[]>([]);
   const [monthMoods, setMonthMoods] = useState<DailyMood[]>([]);
+  const [monthPauseDays, setMonthPauseDays] = useState<PauseDay[]>([]);
   const [weeklyStats, setWeeklyStats] = useState<WeeklyStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -78,6 +79,7 @@ export default function PatientStatsPage() {
       setSchedules(orderedSchedules);
       setMonthMoods(dailyMoods);
       setMonthCheckins(checkins);
+      setMonthPauseDays(pauseDays);
       setWeeklyStats(
         buildWeeklyStats(orderedSchedules, checkins, {
           startDate: statsStartDate,
@@ -140,6 +142,7 @@ export default function PatientStatsPage() {
     setSchedules(orderedSchedules);
     setMonthCheckins(checkins ?? []);
     setMonthMoods(dailyMoods ?? []);
+    setMonthPauseDays(pauseDays ?? []);
     setWeeklyStats(
       buildWeeklyStats(orderedSchedules, checkins ?? [], {
         startDate: statsStartDate,
@@ -169,6 +172,7 @@ export default function PatientStatsPage() {
                   schedules={schedules}
                   checkins={monthCheckins}
                   dailyMoods={monthMoods}
+                  pauseDays={monthPauseDays}
                   startDate={profileStartDate}
                   calendarType="checkin"
                 />

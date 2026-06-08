@@ -40,7 +40,8 @@ export function buildWeeklyStats(
         date,
         checkedCount: 0,
         missedCount: 0,
-        totalCount: 0
+        totalCount: 0,
+        paused: true
       };
     }
 

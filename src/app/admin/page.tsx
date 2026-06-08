@@ -51,6 +51,7 @@ import type {
   Feedback,
   FeedbackReply,
   MedicineSchedule,
+  PauseDay,
   Profile,
   ScheduleWithCheckin,
   WeeklyStats
@@ -73,6 +74,7 @@ export default function AdminPage() {
   const [schedules, setSchedules] = useState<MedicineSchedule[]>([]);
   const [historyCheckins, setHistoryCheckins] = useState<Checkin[]>([]);
   const [historyMoods, setHistoryMoods] = useState<DailyMood[]>([]);
+  const [historyPauseDays, setHistoryPauseDays] = useState<PauseDay[]>([]);
   const [analysis, setAnalysis] = useState<AdminAnalysis | null>(null);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
@@ -138,6 +140,7 @@ export default function AdminPage() {
       setSchedules(orderedSchedules);
       setHistoryCheckins(checkins);
       setHistoryMoods(dailyMoods);
+      setHistoryPauseDays(pauseDays);
       buildDashboard(
         demoPatientProfile,
         orderedSchedules,
@@ -272,9 +275,9 @@ export default function AdminPage() {
         .from("pause_days")
         .select("*")
         .eq("user_id", link.patient_id)
-        .gte("pause_date", analysisStartDate)
+        .gte("pause_date", historyStartDate)
         .lte("pause_date", today)
-        .returns<Array<{ pause_date: string }>>(),
+        .returns<PauseDay[]>(),
       supabase
         .from("daily_moods")
         .select("*")
@@ -300,6 +303,7 @@ export default function AdminPage() {
     setSchedules(orderedSchedules);
     setHistoryCheckins(checkins ?? []);
     setHistoryMoods(dailyMoods ?? []);
+    setHistoryPauseDays(pauseDays ?? []);
     buildDashboard(
       patientProfile,
       orderedSchedules,
@@ -668,6 +672,7 @@ export default function AdminPage() {
                 schedules={schedules}
                 checkins={historyCheckins}
                 dailyMoods={historyMoods}
+                pauseDays={historyPauseDays}
                 startDate={patient.created_at.slice(0, 10)}
                 calendarType="checkin"
               />

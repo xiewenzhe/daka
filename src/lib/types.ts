@@ -42,6 +42,7 @@ export type DailyCheckinSummary = {
   checkedCount: number;
   missedCount: number;
   totalCount: number;
+  paused?: boolean;
 };
 
 export type WeeklyStats = {
